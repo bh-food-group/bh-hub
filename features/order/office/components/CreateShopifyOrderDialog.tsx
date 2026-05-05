@@ -171,6 +171,7 @@ export function CreateShopifyOrderDialog({
   /** Decimal string in shop currency; only applied when delivery is shipping. */
   const [shippingFeeInput, setShippingFeeInput] = useState('0');
   const [shipPresetId, setShipPresetId] = useState<string | null>(null);
+  const [billPresetId, setBillPresetId] = useState<string | null>(null);
 
   /** When false, full shipping address is one summary line; all inputs when true. */
   const [shippingAddressEdit, setShippingAddressEdit] = useState(false);
@@ -206,6 +207,7 @@ export function CreateShopifyOrderDialog({
     setDeliveryMethod('shipping');
     setShippingFeeInput('0');
     setShipPresetId(null);
+    setBillPresetId(null);
     setShippingAddressEdit(false);
     setBillingAddressEdit(false);
   }, []);
@@ -246,7 +248,7 @@ export function CreateShopifyOrderDialog({
     setCustomerLoading(true);
     try {
       const res = await fetch(
-        `/api/order-office/shopify-customers/search?q=${encodeURIComponent(q)}`,
+        `/api/shopify/customers/search?q=${encodeURIComponent(q)}`,
       );
       const data = await res.json().catch(() => ({}));
       if (seq !== customerSearchSeqRef.current) return;
@@ -300,6 +302,7 @@ export function CreateShopifyOrderDialog({
     customerSearchSeqRef.current += 1;
     setCustomerLoading(false);
     setShipPresetId(null);
+    setBillPresetId(null);
     setSelectedCustomer(node);
     const mail = pickCustomerAddress(node);
     let line1 = '';
@@ -532,7 +535,7 @@ export function CreateShopifyOrderDialog({
 
     setSubmitting(true);
     try {
-      const res = await fetch('/api/order-office/shopify-orders/create', {
+      const res = await fetch('/api/shopify/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -849,6 +852,7 @@ export function CreateShopifyOrderDialog({
                   onChange={(e) => {
                     const checked = e.target.checked;
                     setBillingSameAsShipping(checked);
+                    if (checked) setBillPresetId(null);
                     if (!checked) {
                       setBillingAddressEdit(
                         !formatAddressSummaryLine({
@@ -885,6 +889,23 @@ export function CreateShopifyOrderDialog({
                       {billingAddressEdit ? 'Done' : 'Edit address'}
                     </Button>
                   </div>
+                  <DeliveryLocationPresetPicker
+                    selectedPresetId={billPresetId}
+                    onApply={({ presetId, poAddress }) => {
+                      setBillPresetId(presetId);
+                      setBillAddr1(poAddress.address1);
+                      setBillAddr2(poAddress.address2 ?? '');
+                      setBillCity(poAddress.city);
+                      setBillProvinceCode(poAddress.province);
+                      setBillZip(poAddress.postalCode);
+                      setBillCountryCode(
+                        (poAddress.country ?? 'CA').trim().toUpperCase() ||
+                          'CA',
+                      );
+                      setBillingAddressEdit(true);
+                    }}
+                    onClear={() => setBillPresetId(null)}
+                  />
                   {!billingAddressEdit ? (
                     <button
                       type="button"
@@ -910,7 +931,10 @@ export function CreateShopifyOrderDialog({
                         <Input
                           className="h-9"
                           value={billAddr1}
-                          onChange={(e) => setBillAddr1(e.target.value)}
+                          onChange={(e) => {
+                            setBillPresetId(null);
+                            setBillAddr1(e.target.value);
+                          }}
                         />
                       </div>
                       <div className="col-span-2">
@@ -920,7 +944,10 @@ export function CreateShopifyOrderDialog({
                         <Input
                           className="h-9"
                           value={billAddr2}
-                          onChange={(e) => setBillAddr2(e.target.value)}
+                          onChange={(e) => {
+                            setBillPresetId(null);
+                            setBillAddr2(e.target.value);
+                          }}
                         />
                       </div>
                       <div>
@@ -928,7 +955,10 @@ export function CreateShopifyOrderDialog({
                         <Input
                           className="h-9"
                           value={billCity}
-                          onChange={(e) => setBillCity(e.target.value)}
+                          onChange={(e) => {
+                            setBillPresetId(null);
+                            setBillCity(e.target.value);
+                          }}
                         />
                       </div>
                       <div>
@@ -936,7 +966,10 @@ export function CreateShopifyOrderDialog({
                         <Input
                           className="h-9"
                           value={billProvinceCode}
-                          onChange={(e) => setBillProvinceCode(e.target.value)}
+                          onChange={(e) => {
+                            setBillPresetId(null);
+                            setBillProvinceCode(e.target.value);
+                          }}
                         />
                       </div>
                       <div>
@@ -944,7 +977,10 @@ export function CreateShopifyOrderDialog({
                         <Input
                           className="h-9"
                           value={billZip}
-                          onChange={(e) => setBillZip(e.target.value)}
+                          onChange={(e) => {
+                            setBillPresetId(null);
+                            setBillZip(e.target.value);
+                          }}
                         />
                       </div>
                       <div>
@@ -953,9 +989,10 @@ export function CreateShopifyOrderDialog({
                           className="h-9"
                           maxLength={2}
                           value={billCountryCode}
-                          onChange={(e) =>
-                            setBillCountryCode(e.target.value.toUpperCase())
-                          }
+                          onChange={(e) => {
+                            setBillPresetId(null);
+                            setBillCountryCode(e.target.value.toUpperCase());
+                          }}
                         />
                       </div>
                     </div>

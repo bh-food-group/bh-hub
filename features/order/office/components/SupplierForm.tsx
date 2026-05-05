@@ -281,7 +281,7 @@ export function SupplierForm({
         deliverySchedule: schedulePayload,
       };
 
-      const url = isEdit ? `/api/suppliers/${editing.id}` : '/api/suppliers';
+      const url = isEdit ? `/api/order/suppliers/${editing.id}` : '/api/order/suppliers';
       const method = isEdit ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -695,7 +695,7 @@ export function SupplierForm({
           variant="destructive"
           confirmLabel="Delete"
           onConfirm={async () => {
-            const res = await fetch(`/api/suppliers/${editing.id}`, {
+            const res = await fetch(`/api/order/suppliers/${editing.id}`, {
               method: 'DELETE',
             });
             if (!res.ok) {

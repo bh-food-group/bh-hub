@@ -3,4 +3,4 @@
  * Pass a different `searchPath` when another module exposes its own route.
  */
 export const DEFAULT_SHOPIFY_PRODUCT_SEARCH_PATH =
-  '/api/order-office/shopify-products/search';
+  '/api/shopify/products/search';

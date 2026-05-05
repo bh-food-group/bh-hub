@@ -15,9 +15,14 @@ export function vancouverYmdFromShopifyOrderPlacement(order: {
  * each linked order’s placement day ⇒ the latest placement day among linked orders.
  */
 export function minExpectedDateYmdFromShopifyOrders(
-  orders: { processedAt: Date | null; shopifyCreatedAt: Date | null }[],
+  orders: {
+    processedAt: Date | null;
+    shopifyCreatedAt: Date | null;
+    hubOnly?: boolean;
+  }[],
 ): string | null {
   const ym = orders
+    .filter((o) => !o.hubOnly)
     .map(vancouverYmdFromShopifyOrderPlacement)
     .filter((y): y is string => Boolean(y));
   if (ym.length === 0) return null;

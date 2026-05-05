@@ -68,8 +68,8 @@ export function DeliveryLocationPresetPicker({
     try {
       const url =
         q.length > 0
-          ? `/api/delivery-location-presets?q=${encodeURIComponent(q)}`
-          : '/api/delivery-location-presets';
+          ? `/api/order/delivery-location-presets?q=${encodeURIComponent(q)}`
+          : '/api/order/delivery-location-presets';
       const res = await fetch(url);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

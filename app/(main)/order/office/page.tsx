@@ -69,13 +69,15 @@ async function OfficeInboxContent() {
     rawActivePOs,
     rawArchivedPOs,
     supplierGroups,
-    unlinkedShopifyOrders,
+    unlinkedShopifyOrdersRaw,
     vendorMappings,
     rawLineCounts,
     tableViewShopifyTotal,
     tableViewPoTotal,
     tableViewShopifyRows,
     tableViewPoRows,
+    rawCustomOrders,
+    customOrderCountRows,
   ] = await Promise.all([
     // Active POs — skip lineItems entirely; use _count for total, separate query for done counts
     prisma.purchaseOrder.findMany({
@@ -188,7 +190,40 @@ async function OfficeInboxContent() {
     prisma.purchaseOrder.count(),
     fetchShopifyOrdersForOfficeTableView(0, OFFICE_TABLE_VIEW_FETCH_LIMIT),
     fetchPurchaseOrdersForOfficeTableView(0, OFFICE_TABLE_VIEW_FETCH_LIMIT),
+    // Custom orders (internally created for missing/damaged items)
+    prisma.shopifyOrder.findMany({
+      where: { isCustomOrder: true, archivedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: true,
+        purchaseOrders: { select: { archivedAt: true } },
+        lineItems: {
+          include: {
+            purchaseOrderLineItems: { select: { id: true, quantity: true } },
+          },
+        },
+      },
+    }),
+    // Count custom orders per source PO for the badge in PoTable
+    prisma.shopifyOrder.groupBy({
+      by: ['sourcePurchaseOrderId'],
+      where: { isCustomOrder: true, archivedAt: null, sourcePurchaseOrderId: { not: null } },
+      _count: { id: true },
+    }),
   ]);
+
+  // Merge regular Shopify orders with custom orders for the inbox
+  const unlinkedShopifyOrders = [
+    ...unlinkedShopifyOrdersRaw,
+    ...(rawCustomOrders as unknown as typeof unlinkedShopifyOrdersRaw),
+  ];
+
+  // Build per-PO custom order count map for PoTable badge
+  const customOrderCountByPoId = new Map<string, number>(
+    customOrderCountRows
+      .filter((r) => r.sourcePurchaseOrderId != null)
+      .map((r) => [r.sourcePurchaseOrderId as string, r._count.id]),
+  );
 
   const activePurchaseOrders = rawActivePOs as unknown as PrismaPoSlimWithRelations[];
 
@@ -265,6 +300,7 @@ async function OfficeInboxContent() {
     lineCountsByPoId,
     variantDefaultLineNotes,
     legacyOrphanPoLines,
+    customOrderCountByPoId,
   );
 
   const periods = buildWeekPeriods();

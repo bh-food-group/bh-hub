@@ -46,7 +46,7 @@ export function formatDefaultShipToLine(order: {
 }
 
 /**
- * Resolves `shippingAddress` for POST /api/purchase-orders from the single-line field.
+ * Resolves `shippingAddress` for POST /api/order/purchase-orders from the single-line field.
  * When the order has a structured default, edits replace `address1` only so city/PC stay valid.
  */
 export function resolveSeparatePoShippingAddress(

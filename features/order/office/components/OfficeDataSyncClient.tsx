@@ -139,7 +139,7 @@ export function OfficeDataSyncClient() {
     setSyncResult(null);
     setLiveProgress(null);
     try {
-      const res = await fetch('/api/sync/shopify?mode=full&stream=1', {
+      const res = await fetch('/api/order/sync/shopify?mode=full&stream=1', {
         method: 'POST',
         signal: ac.signal,
       });
@@ -240,7 +240,7 @@ export function OfficeDataSyncClient() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch('/api/purchase-orders/import-csv?stream=1', {
+      const res = await fetch('/api/order/purchase-orders/import-csv?stream=1', {
         method: 'POST',
         body: fd,
         signal: ac.signal,

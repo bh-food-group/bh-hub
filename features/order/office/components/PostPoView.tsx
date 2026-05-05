@@ -13,6 +13,8 @@ type Props = {
     poId: string,
     fields: EditPoFields,
   ) => Promise<EditPoResult>;
+  /** Inbox customer key segment for split PO # defaults when order snapshot omits account code. */
+  inboxCustomerPoSegment?: string;
 };
 
 export function PostPoView({
@@ -22,6 +24,7 @@ export function PostPoView({
   lineItemsLoading,
   onRetryLineItems,
   onEditPo,
+  inboxCustomerPoSegment,
 }: Props) {
   const pos = viewData.purchaseOrders;
   const hasMulti = pos.length > 1;
@@ -54,6 +57,7 @@ export function PostPoView({
           lineItemsLoading={lineItemsLoading}
           onRetryLineItems={onRetryLineItems}
           onEditPo={onEditPo}
+          inboxCustomerPoSegment={inboxCustomerPoSegment}
         />
       ))}
     </div>

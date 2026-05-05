@@ -72,7 +72,7 @@ export function OfficeSettingsBar() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/sync/shopify/status');
+      const res = await fetch('/api/order/sync/shopify/status');
       if (res.ok) {
         const json = await res.json();
         setLastSyncedAt(json.lastSyncedAt);
@@ -95,7 +95,7 @@ export function OfficeSettingsBar() {
     setSyncing(true);
     setSyncError(null);
     try {
-      const res = await fetch('/api/sync/shopify?mode=incremental', {
+      const res = await fetch('/api/order/sync/shopify?mode=incremental', {
         method: 'POST',
       });
       const json = (await res.json().catch(() => ({}))) as {

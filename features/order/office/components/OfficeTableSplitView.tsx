@@ -363,7 +363,7 @@ export function OfficeTableSplitView({
       setShopifyLoading(true);
       try {
         const res = await fetch(
-          `/api/order-office/table-view/shopify?${buildShopifyQueryString(0)}`,
+          `/api/shopify/table-view?${buildShopifyQueryString(0)}`,
           { signal: ac.signal },
         );
         if (!res.ok) return;
@@ -392,7 +392,7 @@ export function OfficeTableSplitView({
       setPoLoading(true);
       try {
         const res = await fetch(
-          `/api/order-office/table-view/po?${buildPoQueryString(0)}`,
+          `/api/order/table-view/po?${buildPoQueryString(0)}`,
           { signal: ac.signal },
         );
         if (!res.ok) return;
@@ -446,7 +446,7 @@ export function OfficeTableSplitView({
       try {
         if (linePreview.kind === 'shopify') {
           const res = await fetch(
-            `/api/order-office/table-view/shopify/${linePreview.id}/line-items`,
+            `/api/shopify/table-view/${linePreview.id}/line-items`,
             { signal: ac.signal },
           );
           const data = (await res.json().catch(() => ({}))) as {
@@ -471,7 +471,7 @@ export function OfficeTableSplitView({
           );
         } else {
           const res = await fetch(
-            `/api/order-office/table-view/po/${linePreview.id}/line-items`,
+            `/api/order/table-view/po/${linePreview.id}/line-items`,
             { signal: ac.signal },
           );
           const data = (await res.json().catch(() => ({}))) as {
@@ -546,7 +546,7 @@ export function OfficeTableSplitView({
     setShopifyLoading(true);
     try {
       const res = await fetch(
-        `/api/order-office/table-view/shopify?${buildShopifyQueryString(offset)}`,
+        `/api/shopify/table-view?${buildShopifyQueryString(offset)}`,
       );
       if (!res.ok) return;
       const body = (await res.json()) as {
@@ -579,7 +579,7 @@ export function OfficeTableSplitView({
     setPoLoading(true);
     try {
       const res = await fetch(
-        `/api/order-office/table-view/po?${buildPoQueryString(offset)}`,
+        `/api/order/table-view/po?${buildPoQueryString(offset)}`,
       );
       if (!res.ok) return;
       const body = (await res.json()) as {
@@ -720,7 +720,7 @@ export function OfficeTableSplitView({
 
     setArchivingShopifySelection(true);
     try {
-      const res = await fetch('/api/archive', {
+      const res = await fetch('/api/order/archive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopifyOrderIds: ids, archive: true }),

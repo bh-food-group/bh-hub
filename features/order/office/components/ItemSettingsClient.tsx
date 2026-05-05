@@ -103,7 +103,7 @@ export function ItemSettingsClient({ vendors, shopifyConfigured }: Props) {
 
   const loadNotes = useCallback(async () => {
     try {
-      const res = await fetch('/api/order-office/shopify-variant-notes');
+      const res = await fetch('/api/shopify/variant-notes');
       const data = (await res.json().catch(() => ({}))) as NotesResponse;
       if (!res.ok) {
         toast.error(data.error ?? 'Failed to load saved notes');
@@ -129,7 +129,7 @@ export function ItemSettingsClient({ vendors, shopifyConfigured }: Props) {
       if (titleApplied.trim()) qs.set('title', titleApplied.trim());
       if (includeShopifyDrafts) qs.set('includeDraft', '1');
       const res = await fetch(
-        `/api/order-office/shopify-products/catalog?${qs.toString()}`,
+        `/api/shopify/products/catalog?${qs.toString()}`,
       );
       const data = (await res.json().catch(() => ({}))) as CatalogResponse;
       if (!res.ok) {
@@ -208,7 +208,7 @@ export function ItemSettingsClient({ vendors, shopifyConfigured }: Props) {
       const raw = drafts[variantId] ?? '';
       setSavingId(variantId);
       try {
-        const res = await fetch('/api/order-office/shopify-variant-notes', {
+        const res = await fetch('/api/shopify/variant-notes', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

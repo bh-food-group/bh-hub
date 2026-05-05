@@ -116,6 +116,28 @@ function mapDeliveryLocationPresetSummary(
   };
 }
 
+type PrismaShopifyOrderRowForPo =
+  | PrismaPoWithRelations['shopifyOrders'][number]
+  | PrismaPoSlimWithRelations['shopifyOrders'][number];
+
+function mapShopifyOrderRowToLinkedOrder(
+  o: PrismaShopifyOrderRowForPo,
+): LinkedShopifyOrder {
+  const c = o.customer;
+  return {
+    id: o.id,
+    name: o.name,
+    customerName: c?.displayName ?? c?.email ?? null,
+    fulfillmentStatus: o.displayFulfillmentStatus,
+    customerNote: o.customerNote?.trim() ? o.customerNote.trim() : null,
+    displayNameOverride: c?.displayNameOverride?.trim() || null,
+    customerCompany: c?.company?.trim() || null,
+    customerDisplayName: c?.displayName?.trim() || null,
+    customerEmail: (c?.email ?? o.email)?.trim() || null,
+    officePoAccountCode: c?.officePoAccountCode?.trim() || null,
+  };
+}
+
 /** Minimal PO payload for mapping `lineItems` the same way as `mapPrismaPoToBlock`. */
 export type PrismaPayloadForPoLineItemViews = {
   status: string;
@@ -138,6 +160,7 @@ export type PrismaPayloadForPoLineItemViews = {
 export function mapPrismaPayloadToPoLineItemViews(
   po: PrismaPayloadForPoLineItemViews,
   variantImageFallback?: Map<string, string | null>,
+  customOrderQtyByLineId?: Map<string, number>,
 ): PoLineItemView[] {
   const storedStatus = po.status as PurchaseOrderStatus;
   const linkedOrders = po.shopifyOrders;
@@ -179,8 +202,8 @@ export function mapPrismaPayloadToPoLineItemViews(
     po.lineItems.map((li) => {
       const soli = li.shopifyOrderLineItem;
       const owningOrder = soli
-        ? orderById.get(soli.orderId) ??
-          linkedOrders.find((o) => o.id === soli.orderId)
+        ? (orderById.get(soli.orderId) ??
+          linkedOrders.find((o) => o.id === soli.orderId))
         : undefined;
       return {
         id: li.id,
@@ -208,6 +231,7 @@ export function mapPrismaPayloadToPoLineItemViews(
         shopifyOrderNumber: owningOrder?.name ?? firstOrderName,
         fulfillmentStatus: lineFulfillmentStatus(li),
         note: li.note?.trim() ? li.note.trim() : null,
+        customOrderQty: customOrderQtyByLineId?.get(li.id) ?? 0,
       };
     }),
   );
@@ -218,6 +242,7 @@ export function mapPrismaPayloadToPoLineItemViews(
 export function mapPrismaPoToBlock(
   po: PrismaPoWithRelations,
   variantImageFallback?: Map<string, string | null>,
+  customOrderCount = 0,
 ): OfficePurchaseOrderBlock {
   const storedStatus = po.status as PurchaseOrderStatus;
   const linkedOrders = po.shopifyOrders;
@@ -261,13 +286,9 @@ export function mapPrismaPoToBlock(
   const orderedAt =
     orderDates.length > 0 ? toOrderedAtIso(orderDates[0]) : null;
 
-  const linkedShopifyOrders: LinkedShopifyOrder[] = linkedOrders.map((o) => ({
-    id: o.id,
-    name: o.name,
-    customerName: o.customer?.displayName ?? o.customer?.email ?? null,
-    fulfillmentStatus: o.displayFulfillmentStatus,
-    customerNote: o.customerNote?.trim() ? o.customerNote.trim() : null,
-  }));
+  const linkedShopifyOrders: LinkedShopifyOrder[] = linkedOrders.map(
+    mapShopifyOrderRowToLinkedOrder,
+  );
 
   const minExpectedDateYmd = minExpectedDateYmdFromShopifyOrders(linkedOrders);
 
@@ -308,15 +329,19 @@ export function mapPrismaPoToBlock(
     authorizedBy: po.authorizedBy?.trim() ?? null,
     createdBy: mapPoCreatedBy(po.createdBy),
     emailSentAt: po.emailSentAt ? po.emailSentAt.toISOString() : null,
-    emailReplyReceivedAt: po.emailReplyReceivedAt ? po.emailReplyReceivedAt.toISOString() : null,
+    emailReplyReceivedAt: po.emailReplyReceivedAt
+      ? po.emailReplyReceivedAt.toISOString()
+      : null,
     emailDeliveryWaivedAt: po.emailDeliveryWaivedAt
       ? po.emailDeliveryWaivedAt.toISOString()
       : null,
-    emailDeliveries: po.emailDeliveries.map((d): PoEmailDeliveryItem => ({
-      recipientEmail: d.recipientEmail,
-      recipientName: d.recipientName,
-      sentAt: d.sentAt.toISOString(),
-    })),
+    emailDeliveries: po.emailDeliveries.map(
+      (d): PoEmailDeliveryItem => ({
+        recipientEmail: d.recipientEmail,
+        recipientName: d.recipientName,
+        sentAt: d.sentAt.toISOString(),
+      }),
+    ),
   };
 
   return {
@@ -334,6 +359,7 @@ export function mapPrismaPoToBlock(
     poCreatedAt: po.createdAt.toISOString(),
     legacyExternalId: po.legacyExternalId,
     emailDeliveryOutstanding,
+    customOrderCount,
   };
 }
 
@@ -345,6 +371,7 @@ export function mapPrismaPoToBlock(
 export function mapPrismaPoToSlimBlock(
   po: PrismaPoSlimWithRelations,
   lineCounts: { total: number; done: number },
+  customOrderCount = 0,
 ): OfficePurchaseOrderBlock {
   const storedStatus = po.status as PurchaseOrderStatus;
   const linkedOrders = po.shopifyOrders;
@@ -383,13 +410,9 @@ export function mapPrismaPoToSlimBlock(
   const orderedAt =
     orderDates.length > 0 ? toOrderedAtIso(orderDates[0]) : null;
 
-  const linkedShopifyOrders: LinkedShopifyOrder[] = linkedOrders.map((o) => ({
-    id: o.id,
-    name: o.name,
-    customerName: o.customer?.displayName ?? o.customer?.email ?? null,
-    fulfillmentStatus: o.displayFulfillmentStatus,
-    customerNote: o.customerNote?.trim() ? o.customerNote.trim() : null,
-  }));
+  const linkedShopifyOrders: LinkedShopifyOrder[] = linkedOrders.map(
+    mapShopifyOrderRowToLinkedOrder,
+  );
 
   const minExpectedDateYmd = minExpectedDateYmdFromShopifyOrders(linkedOrders);
 
@@ -413,8 +436,10 @@ export function mapPrismaPoToSlimBlock(
     fulfillTotalCount: linesTotal,
     linkedShopifyOrders,
     lastSyncedAt,
-    shippingAddress: (po.shippingAddress ?? null) as PoPanelMeta['shippingAddress'],
-    billingAddress: (po.billingAddress ?? null) as PoPanelMeta['billingAddress'],
+    shippingAddress: (po.shippingAddress ??
+      null) as PoPanelMeta['shippingAddress'],
+    billingAddress: (po.billingAddress ??
+      null) as PoPanelMeta['billingAddress'],
     billingSameAsShipping: po.billingSameAsShipping,
     deliveryLocationPreset: mapDeliveryLocationPresetSummary(
       po.deliveryLocationPreset,
@@ -422,15 +447,19 @@ export function mapPrismaPoToSlimBlock(
     authorizedBy: po.authorizedBy?.trim() ?? null,
     createdBy: mapPoCreatedBy(po.createdBy),
     emailSentAt: po.emailSentAt ? po.emailSentAt.toISOString() : null,
-    emailReplyReceivedAt: po.emailReplyReceivedAt ? po.emailReplyReceivedAt.toISOString() : null,
+    emailReplyReceivedAt: po.emailReplyReceivedAt
+      ? po.emailReplyReceivedAt.toISOString()
+      : null,
     emailDeliveryWaivedAt: po.emailDeliveryWaivedAt
       ? po.emailDeliveryWaivedAt.toISOString()
       : null,
-    emailDeliveries: po.emailDeliveries.map((d): PoEmailDeliveryItem => ({
-      recipientEmail: d.recipientEmail,
-      recipientName: d.recipientName,
-      sentAt: d.sentAt.toISOString(),
-    })),
+    emailDeliveries: po.emailDeliveries.map(
+      (d): PoEmailDeliveryItem => ({
+        recipientEmail: d.recipientEmail,
+        recipientName: d.recipientName,
+        sentAt: d.sentAt.toISOString(),
+      }),
+    ),
   };
 
   return {
@@ -448,6 +477,7 @@ export function mapPrismaPoToSlimBlock(
     poCreatedAt: po.createdAt.toISOString(),
     legacyExternalId: po.legacyExternalId,
     emailDeliveryOutstanding,
+    customOrderCount,
   };
 }
 

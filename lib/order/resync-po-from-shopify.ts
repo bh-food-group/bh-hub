@@ -20,7 +20,9 @@ export type ResyncPurchaseOrderFromShopifyOptions = {
   appendFromShopifyOrderId?: string | null;
 };
 
-function toDecimal(n: Prisma.Decimal | number | null | undefined): Prisma.Decimal | null {
+function toDecimal(
+  n: Prisma.Decimal | number | null | undefined,
+): Prisma.Decimal | null {
   if (n == null) return null;
   if (n instanceof Prisma.Decimal) return n;
   return new Prisma.Decimal(n);
@@ -75,7 +77,8 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
   if (!po) return;
 
   const linkedOrderIds = new Set(po.shopifyOrders.map((o) => o.id));
-  const vendorNorm = po.supplier.shopifyVendorName?.trim().toLowerCase() ?? null;
+  const vendorNorm =
+    po.supplier.shopifyVendorName?.trim().toLowerCase() ?? null;
 
   const linkedSoliIds = po.lineItems
     .map((l) => l.shopifyOrderLineItemId)
@@ -121,7 +124,10 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
     }),
   );
 
-  if (!appendFromShopifyOrderId || !linkedOrderIds.has(appendFromShopifyOrderId)) {
+  if (
+    !appendFromShopifyOrderId ||
+    !linkedOrderIds.has(appendFromShopifyOrderId)
+  ) {
     await recomputePurchaseOrderStatusById(purchaseOrderId);
     return;
   }
@@ -138,7 +144,9 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
   }
 
   const usedShopifyLineIds = new Set(
-    refreshed.lineItems.map((l) => l.shopifyOrderLineItemId).filter(Boolean) as string[],
+    refreshed.lineItems
+      .map((l) => l.shopifyOrderLineItemId)
+      .filter(Boolean) as string[],
   );
 
   const orderWithLines = await prisma.shopifyOrder.findUnique({
@@ -160,7 +168,10 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
     return;
   }
 
-  const baseSeq = refreshed.lineItems.reduce((m, l) => Math.max(m, l.sequence), 0);
+  const baseSeq = refreshed.lineItems.reduce(
+    (m, l) => Math.max(m, l.sequence),
+    0,
+  );
 
   const appendCandidates = orderWithLines.lineItems.filter((li) => {
     if (li.quantity <= 0) return false;
@@ -174,14 +185,17 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
   const appendVariantGids = appendCandidates
     .map((li) => li.variantGid?.trim())
     .filter((g): g is string => Boolean(g));
-  const noteByVariant = await loadVariantOfficeNotesMap(prisma, appendVariantGids);
+  const noteByVariant = await loadVariantOfficeNotesMap(
+    prisma,
+    appendVariantGids,
+  );
 
   const appendRows = appendCandidates.map((li, idx) => {
     const price = li.price;
     const subtotal =
       price != null ? new Prisma.Decimal(price).mul(li.quantity) : null;
     const vg = li.variantGid?.trim() ?? null;
-    const defaultNote = vg ? noteByVariant.get(vg) ?? null : null;
+    const defaultNote = vg ? (noteByVariant.get(vg) ?? null) : null;
     return {
       purchaseOrderId,
       sequence: baseSeq + idx + 1,

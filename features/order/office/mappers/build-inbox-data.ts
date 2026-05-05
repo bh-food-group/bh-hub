@@ -649,8 +649,10 @@ function shopifyOrderToDraft(
       })()
     : orderEmail?.trim() ?? null;
 
-  const rawLines =
-    supplierBucketId === UNASSIGNED_SUPPLIER_ID
+  // Custom orders show all lines (not Shopify-synced, so no remaining-qty filter)
+  const rawLines = order.isCustomOrder
+    ? order.lineItems
+    : supplierBucketId === UNASSIGNED_SUPPLIER_ID
       ? order.lineItems.filter(
           (li) =>
             shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId) > 0 &&
@@ -672,6 +674,8 @@ function shopifyOrderToDraft(
     shopifyOrderGid: order.shopifyGid,
     currencyCode: order.currencyCode ?? null,
     orderNumber: order.name ?? order.id,
+    isCustomOrder: order.isCustomOrder ?? false,
+    referenceOrderNames: order.referenceOrderNames ?? null,
     customerEmail: customer?.email ?? order.email ?? null,
     customerPhone: customer?.phone ?? null,
     shippingAddressLine: flattenShippingAddress(order.shippingAddress),
@@ -702,7 +706,9 @@ function shopifyOrderToDraft(
           itemPrice: li.price ? String(li.price) : null,
           itemCost: li.unitCost ? String(li.unitCost) : null,
           shopifySourceLineQty,
-          quantity: shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId),
+          quantity: order.isCustomOrder
+            ? shopifySourceLineQty
+            : shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId),
           includeInPo: true,
           defaultPoLineNote,
         };
@@ -729,6 +735,7 @@ export function buildInboxData(
    * {@link buildLegacyExtraQtyByShopifyLineItemId} across all inbox-linked orders on the PO.
    */
   legacyOrphanPoLines: LegacyOrphanPoLineForInbox[] = [],
+  customOrderCountByPoId: Map<string, number> = new Map(),
 ): InboxData {
   const purchaseOrders: AnyPo[] = [...activePurchaseOrders, ...archivedPurchaseOrders];
   const initialStates: Record<SupplierKey, SupplierEntry> = {};
@@ -894,8 +901,12 @@ export function buildInboxData(
       const poBlocks = hasPOs
         ? pos.map((p) =>
             isSlimPo(p)
-              ? mapPrismaPoToSlimBlock(p, lineCountsByPoId.get(p.id) ?? { total: 0, done: 0 })
-              : mapPrismaPoToBlock(p),
+              ? mapPrismaPoToSlimBlock(
+                  p,
+                  lineCountsByPoId.get(p.id) ?? { total: 0, done: 0 },
+                  customOrderCountByPoId.get(p.id) ?? 0,
+                )
+              : mapPrismaPoToBlock(p, undefined, customOrderCountByPoId.get(p.id) ?? 0),
           )
         : [];
       let fulfillDone = 0;

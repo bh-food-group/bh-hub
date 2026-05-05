@@ -638,6 +638,12 @@ model ShopifyOrder {
   /// Office inbox: mark order “on hold” until cleared (not synced to Shopify).
   officePendingAt          DateTime?              @map("office_pending_at") @db.Timestamptz
   syncedAt                 DateTime               @default(now()) @map("synced_at") @db.Timestamptz
+  /// True for internally-created orders (missing/damaged items); not synced from Shopify.
+  isCustomOrder            Boolean                @default(false) @map("is_custom_order")
+  /// Display-only Shopify order names this custom order was created from (e.g. "#5902, #5903"). Null for real Shopify orders.
+  referenceOrderNames      String?                @map("reference_order_names") @db.Text
+  /// The PO that spawned this custom order. Null for real Shopify orders.
+  sourcePurchaseOrderId    String?                @map("source_purchase_order_id")
   createdAt                DateTime               @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                DateTime               @updatedAt @map("updated_at") @db.Timestamptz
   lineItems                ShopifyOrderLineItem[]
@@ -647,6 +653,7 @@ model ShopifyOrder {
   @@index([orderNumber])
   @@index([customerId])
   @@index([displayFulfillmentStatus])
+  @@index([isCustomOrder])
   @@map("shopify_orders")
   @@schema("order")
 }
@@ -670,12 +677,15 @@ model ShopifyOrderLineItem {
   price                  Decimal?                @db.Decimal(14, 2)
   /// Variant inventory unit cost (Shopify), when available.
   unitCost               Decimal?                @map("unit_cost") @db.Decimal(14, 2)
+  /// For custom orders only: the PO line item this line was created from (hub-only, no FK constraint).
+  sourcePurchaseOrderLineItemId String?          @map("source_purchase_order_line_item_id")
   createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+  updatedAt              DateTime               @updatedAt @map("updated_at") @db.Timestamptz
   purchaseOrderLineItems PurchaseOrderLineItem[]
   fulfillmentLineItems   FulfillmentLineItem[]
 
   @@index([orderId])
+  @@index([sourcePurchaseOrderLineItemId])
   @@index([sku])
   @@index([vendor])
   @@map("shopify_order_line_items")

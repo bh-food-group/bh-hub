@@ -4,7 +4,7 @@ import {
   resolvePoEmailPublicContactAddress,
 } from './po-email-settings';
 
-/** Shipped with GET/PUT `/api/office/po-email-settings` — no secrets. */
+/** Shipped with GET/PUT `/api/order/po-email-settings` — no secrets. */
 export type PoEmailTransportMeta = {
   /** True when SMTP_HOST, SMTP_USER, and SMTP_PASS are all set (send may still fail if wrong). */
   smtpAuthConfigured: boolean;

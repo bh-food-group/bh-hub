@@ -173,7 +173,7 @@ export function OrderProcessingBlock({
     setTogglingReply(true);
     try {
       const method = poEmailReplyReceivedAt ? 'DELETE' : 'PATCH';
-      const res = await fetch(`/api/purchase-orders/${selectedPoBlockId}/reply-received`, { method });
+      const res = await fetch(`/api/order/purchase-orders/${selectedPoBlockId}/reply-received`, { method });
       if (!res.ok) { toast.error('Could not update reply status'); return; }
       const body = await res.json() as { emailReplyReceivedAt: string | null };
       onReplyReceivedChange?.();

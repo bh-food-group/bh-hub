@@ -1,5 +1,5 @@
 /**
- * Shared Shopify Auto PO CSV → DB import (used by POST /api/purchase-orders/import-csv).
+ * Shared Shopify Auto PO CSV → DB import (used by POST /api/order/purchase-orders/import-csv).
  * Supports AbortSignal + progress callbacks for streaming UI.
  */
 

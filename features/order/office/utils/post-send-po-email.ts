@@ -62,7 +62,7 @@ async function waitForQueuedPoEmailSend(args: {
   try {
     while (Date.now() < deadline) {
       await sleep(POLL_INTERVAL_MS);
-      const pr = await fetch(`/api/purchase-orders/${args.purchaseOrderId}`);
+      const pr = await fetch(`/api/order/purchase-orders/${args.purchaseOrderId}`);
       const pj = (await pr.json().catch(() => ({}))) as PoGetBody;
       const nextSent = pj?.officeBlock?.panelMeta?.emailSentAt ?? null;
       if (emailSentAtChanged(args.baselineEmailSentAt, nextSent)) {
@@ -103,7 +103,7 @@ export async function postSendPurchaseOrderEmail(
 ): Promise<PostSendPoEmailResult> {
   let res: Response;
   try {
-    res = await fetch(`/api/purchase-orders/${purchaseOrderId}/send-email`, {
+    res = await fetch(`/api/order/purchase-orders/${purchaseOrderId}/send-email`, {
       method: 'POST',
     });
   } catch {

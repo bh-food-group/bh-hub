@@ -52,7 +52,7 @@ export type SupplierEntry = {
   completedAt: string | null;
   /** Whether all POs (or all unlinked orders) for this entry are archived. */
   isArchived: boolean;
-  /** IDs for `/api/archive`: PO ids when the row has POs; always includes unlinked Shopify order ids for that row. */
+  /** IDs for `/api/order/archive`: PO ids when the row has POs; always includes unlinked Shopify order ids for that row. */
   archivePurchaseOrderIds: string[];
   archiveShopifyOrderIds: string[];
   /** Parsed default PO delivery schedule; null when unassigned or unset. */

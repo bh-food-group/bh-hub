@@ -452,7 +452,7 @@ export function OrderManagementView({
       if (!key) {
         try {
           const res = await fetch(
-            `/api/order-office/table-view/resolve-po-key?id=${encodeURIComponent(poId)}`,
+            `/api/order/table-view/resolve-po-key?id=${encodeURIComponent(poId)}`,
           );
           if (!res.ok) {
             toast.error('Could not resolve this PO.');
@@ -510,8 +510,12 @@ export function OrderManagementView({
     const t = setTimeout(() => ac.abort(), LAZY_PO_LINE_ITEMS_FETCH_MS);
     let cancelled = false;
 
-    fetch(`/api/purchase-orders/${poIdToFetch}/line-items`, { signal: ac.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    fetch(`/api/order/purchase-orders/${poIdToFetch}/line-items`, {
+      signal: ac.signal,
+    })
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
+      )
       .then((data: { lineItems?: PoLineItemView[] }) => {
         if (cancelled) return;
         const lines = data.lineItems;
@@ -596,7 +600,7 @@ export function OrderManagementView({
   const handlePoEmailDeliveryWaivedChange = useCallback(
     async (poId: string, waived: boolean) => {
       try {
-        const res = await fetch(`/api/purchase-orders/${poId}`, {
+        const res = await fetch(`/api/order/purchase-orders/${poId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ emailDeliveryWaived: waived }),
@@ -749,7 +753,11 @@ export function OrderManagementView({
         label: 'PO pending',
         count: computedCounts.po_pending,
       },
-      { id: 'po_created', label: 'PO created', count: computedCounts.po_created },
+      {
+        id: 'po_created',
+        label: 'PO created',
+        count: computedCounts.po_created,
+      },
       { id: 'fulfilled', label: 'Fulfilled', count: computedCounts.fulfilled },
     ];
     return all.filter((t) => t.id !== 'po_pending' || t.count > 0);
@@ -775,6 +783,24 @@ export function OrderManagementView({
     () => currentDrafts.filter((d) => !d.archivedAt).map((d) => d.id),
     [currentDrafts],
   );
+
+  const isReplacementOrderEntry = useMemo(
+    () => currentDrafts.length > 0 && currentDrafts.every((d) => d.isCustomOrder),
+    [currentDrafts],
+  );
+
+  const handleDeleteReplacementOrder = useCallback(async () => {
+    const draft = currentDrafts.find((d) => d.isCustomOrder);
+    if (!draft) return;
+    const res = await fetch(`/api/order/custom-orders/${draft.id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      toast.error(body.error ?? 'Failed to delete replacement order');
+      return;
+    }
+    toast.success('Replacement order deleted');
+    router.refresh();
+  }, [currentDrafts, router]);
 
   useEffect(() => {
     const inc: Record<string, boolean[]> = {};
@@ -936,7 +962,7 @@ export function OrderManagementView({
       });
 
       try {
-        const res = await fetch('/api/purchase-orders', {
+        const res = await fetch('/api/order/purchase-orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1067,7 +1093,7 @@ export function OrderManagementView({
         : 'AUTO';
 
       try {
-        const res = await fetch('/api/purchase-orders', {
+        const res = await fetch('/api/order/purchase-orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1205,7 +1231,7 @@ export function OrderManagementView({
       };
 
       try {
-        const res = await fetch(`/api/purchase-orders/${poId}`, {
+        const res = await fetch(`/api/order/purchase-orders/${poId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(fields),
@@ -1231,9 +1257,7 @@ export function OrderManagementView({
                 };
               }
               setActiveStatusTab((tab) =>
-                tab === 'without_po' ||
-                tab === 'inbox' ||
-                tab === 'po_created'
+                tab === 'without_po' || tab === 'inbox' || tab === 'po_created'
                   ? 'po_pending'
                   : tab,
               );
@@ -1354,7 +1378,7 @@ export function OrderManagementView({
       };
 
       try {
-        const res = await fetch(`/api/purchase-orders/${poId}`, {
+        const res = await fetch(`/api/order/purchase-orders/${poId}`, {
           method: 'DELETE',
         });
         if (res.ok) {
@@ -1409,7 +1433,7 @@ export function OrderManagementView({
       }));
 
       try {
-        const res = await fetch('/api/archive', {
+        const res = await fetch('/api/order/archive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1474,7 +1498,7 @@ export function OrderManagementView({
       }));
 
       try {
-        const res = await fetch('/api/archive', {
+        const res = await fetch('/api/order/archive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1508,7 +1532,7 @@ export function OrderManagementView({
       );
       if (!confirmed) return;
       try {
-        const res = await fetch('/api/archive', {
+        const res = await fetch('/api/order/archive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1560,7 +1584,7 @@ export function OrderManagementView({
       }
 
       try {
-        const res = await fetch('/api/archive', {
+        const res = await fetch('/api/order/archive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1948,7 +1972,9 @@ export function OrderManagementView({
                   )
                 : expectedDateKeysForPoTab(
                     patchedViewDataMap[supplierKey],
-                    activeStatusTab === 'po_created' ? 'po_created' : 'fulfilled',
+                    activeStatusTab === 'po_created'
+                      ? 'po_created'
+                      : 'fulfilled',
                   );
           return dateKeys.some(
             (ed) =>
@@ -2400,6 +2426,7 @@ export function OrderManagementView({
               poCreatedAt: new Date().toISOString(),
               legacyExternalId: null,
               emailDeliveryOutstanding: false,
+              customOrderCount: 0,
             },
           ],
         } satisfies PostViewData)
@@ -2455,6 +2482,7 @@ export function OrderManagementView({
                 poCreatedAt: new Date().toISOString(),
                 legacyExternalId: null,
                 emailDeliveryOutstanding: false,
+                customOrderCount: 0,
               },
             ],
           } satisfies PostViewData)
@@ -2472,8 +2500,7 @@ export function OrderManagementView({
       if (stillValid) return prev;
       if (activeStatusTab === 'po_pending') {
         const pend = vd.purchaseOrders.find(
-          (b) =>
-            b.id !== 'new' && !b.archivedAt && b.status === 'pending',
+          (b) => b.id !== 'new' && !b.archivedAt && b.status === 'pending',
         );
         if (pend) return pend.id;
       }
@@ -2606,7 +2633,8 @@ export function OrderManagementView({
     (selectedPoPrintBlock?.panelMeta?.fulfillTotalCount ?? 0) > 0;
 
   const lineItemsLazyFetchFailed =
-    !!selectedPoBlockId && Boolean(lazyPoLineItemsFetchFailed[selectedPoBlockId]);
+    !!selectedPoBlockId &&
+    Boolean(lazyPoLineItemsFetchFailed[selectedPoBlockId]);
 
   const lineItemsLoading = lineItemsNeedsLazyFetch && !lineItemsLazyFetchFailed;
 
@@ -2738,6 +2766,7 @@ export function OrderManagementView({
           poPrintHeadline={poPrintHeadline}
           lineItemsLoading={lineItemsLoading}
           inboxShopifyOrderIds={metaInboxShopifyOrderIds}
+          onDeleteReplacementOrder={isReplacementOrderEntry ? handleDeleteReplacementOrder : undefined}
         />
       </div>
     </div>
@@ -2834,7 +2863,9 @@ export function OrderManagementView({
               <OfficeTableSplitView
                 shopifyAdminStoreHandle={shopifyAdminStoreHandle}
                 shopifyCreateOrderEnabled={shopifyAdminApiConfigured}
-                onRequestCreateShopifyOrder={() => setCreateShopifyOrderOpen(true)}
+                onRequestCreateShopifyOrder={() =>
+                  setCreateShopifyOrderOpen(true)
+                }
                 initialShopifyRows={tableViewShopifyRows}
                 initialPoRows={tableViewPoRows}
                 shopifyTotal={tableViewShopifyTotal}

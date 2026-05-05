@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils/cn';
 import type { PrePoLineDraft, SeparatePoPayload, ShopifyOrderDraft } from '../types';
+import { mergeProductAndVariantTitle } from '../types/purchase-order';
 import {
   ShopifyLineProductCell,
   ShopifyProductAdminArrowLink,
@@ -200,7 +201,7 @@ export function OrderBlock({
 
       const hasAppend = ops.some((o) => o.type === 'addVariant');
 
-      const res = await fetch(`/api/order-office/shopify-orders/${order.id}/apply-edit`, {
+      const res = await fetch(`/api/shopify/orders/${order.id}/apply-edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -238,7 +239,7 @@ export function OrderBlock({
         shopifyProductGid: hit.productId,
         sku: hit.sku,
         imageUrl: hit.imageUrl ?? null,
-        productTitle: `${hit.productTitle}${hit.variantTitle ? ` — ${hit.variantTitle}` : ''}`,
+        productTitle: mergeProductAndVariantTitle(hit.productTitle, hit.variantTitle),
         itemPrice: price,
         itemCost: hit.unitCost ?? null,
         quantity: 1,
@@ -264,7 +265,16 @@ export function OrderBlock({
       <div className="px-3.5 py-2 border-b bg-muted/40 flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-[12px] font-medium">
-            {shopifyAdminOrderUrl ? (
+            {order.isCustomOrder ? (
+              <>
+                <Badge variant="blue" className="rounded px-1.5 text-[10px]">
+                  {order.referenceOrderNames ?? order.orderNumber}
+                </Badge>
+                <Badge variant="amber" className="rounded px-1.5 text-[10px]">
+                  REPLACEMENT
+                </Badge>
+              </>
+            ) : shopifyAdminOrderUrl ? (
               <a
                 href={shopifyAdminOrderUrl}
                 target="_blank"
@@ -339,6 +349,15 @@ export function OrderBlock({
                 Unarchive
               </Button>
             ) : null
+          ) : order.isCustomOrder ? (
+            <Button
+              variant="outline"
+              size="xs"
+              className="text-[10px] rounded-[5px]"
+              onClick={() => setDialogOpen(true)}
+            >
+              Create PO
+            </Button>
           ) : (
             <>
               <Button

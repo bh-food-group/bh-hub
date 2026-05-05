@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/sync/shopify",
+      "path": "/api/order/sync/shopify",
       "schedule": "0 0 * * *"
     }
   ]

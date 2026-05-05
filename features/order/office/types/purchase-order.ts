@@ -37,15 +37,24 @@ export type PoLineItemView = {
   fulfillmentStatus: LineFulfillmentStatus;
   /** PO / PDF line note (editable per PO; defaults from Item settings mapping). */
   note: string | null;
+  /** Total qty sent to custom orders from this PO line (hub-only, never touches Shopify). */
+  customOrderQty?: number;
 };
 
 export type LinkedShopifyOrder = {
   id: string;
   name: string;
+  /** Compact label for badges (Shopify display name, else order email). */
   customerName: string | null;
   fulfillmentStatus: string | null;
   /** Shopify `Order.note` synced to DB (`shopify_orders.customer_note`). */
   customerNote: string | null;
+  /** Hub Customer Settings — local display name override (not synced to Shopify). */
+  displayNameOverride: string | null;
+  customerCompany: string | null;
+  customerDisplayName: string | null;
+  customerEmail: string | null;
+  officePoAccountCode: string | null;
 };
 
 export type PoAddress = {
@@ -125,12 +134,31 @@ export type OfficePurchaseOrderBlock = {
   legacyExternalId: number | null;
   /** Email-channel PO, not archived/import legacy, no `emailSentAt`. */
   emailDeliveryOutstanding: boolean;
+  /** Count of active (non-archived) custom orders created from this PO. */
+  customOrderCount: number;
 };
 
+/** Shopify placeholder when a product has only the default variant. */
+const SHOPIFY_DEFAULT_VARIANT_TITLE_LC = 'default title';
+
+/** True when `variantTitle` should be shown as a distinct variant (not Shopify's default). */
+export function isMeaningfulVariantTitle(
+  variantTitle: string | null | undefined,
+): boolean {
+  const t = variantTitle?.trim();
+  if (!t) return false;
+  return t.toLowerCase() !== SHOPIFY_DEFAULT_VARIANT_TITLE_LC;
+}
+
+/** Single-line product label: appends variant only when it is not the default variant title. */
+export function mergeProductAndVariantTitle(
+  productTitle: string,
+  variantTitle: string | null | undefined,
+): string {
+  if (!isMeaningfulVariantTitle(variantTitle)) return productTitle;
+  return `${productTitle} — ${variantTitle!.trim()}`;
+}
+
 export function formatProductLabel(line: PoLineItemView): string {
-  const title = line.productTitle ?? '(untitled)';
-  if (line.variantTitle) {
-    return `${title} — ${line.variantTitle}`;
-  }
-  return title;
+  return mergeProductAndVariantTitle(line.productTitle ?? '(untitled)', line.variantTitle);
 }

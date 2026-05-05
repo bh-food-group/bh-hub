@@ -80,7 +80,7 @@ export function GroupBulkDeliveryScheduleDialog({
 
     startTransition(async () => {
       const res = await fetch(
-        `/api/supplier-groups/${group.id}/delivery-schedule`,
+        `/api/order/supplier-groups/${group.id}/delivery-schedule`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

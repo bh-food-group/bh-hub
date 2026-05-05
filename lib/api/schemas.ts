@@ -346,12 +346,16 @@ export type DeliveryDailySchedulePatchBody = z.infer<
 >;
 
 /** POST /api/delivery/driver-auth/token - exchange Google id_token or auth code for driver JWT */
-export const deliveryDriverAuthTokenPostSchema = z.object({
-  idToken: z.string().optional(),
-  code: z.string().optional(),
-  redirectUri: z.string().optional(),
-  codeVerifier: z.string().optional(),
-}).refine((d) => d.idToken ?? d.code, { message: 'idToken or code is required' });
+export const deliveryDriverAuthTokenPostSchema = z
+  .object({
+    idToken: z.string().optional(),
+    code: z.string().optional(),
+    redirectUri: z.string().optional(),
+    codeVerifier: z.string().optional(),
+  })
+  .refine((d) => d.idToken ?? d.code, {
+    message: 'idToken or code is required',
+  });
 
 /** POST /api/delivery/driver/location - driver GPS update */
 export const deliveryDriverLocationPostSchema = z.object({
@@ -452,7 +456,7 @@ export const supplierUpdateSchema = supplierWritableFieldsSchema
     }
   });
 
-/** PATCH /api/supplier-groups/[id]/delivery-schedule — bulk update all suppliers in group */
+/** PATCH /api/order/supplier-groups/[id]/delivery-schedule — bulk update all suppliers in group */
 export const supplierGroupBulkDeliveryScheduleSchema = z
   .object({
     deliverySchedule: z.unknown().nullable(),
@@ -534,8 +538,12 @@ export const purchaseOrderResyncFromShopifyBodySchema = z.object({
   appendFromShopifyOrderLocalId: z.string().min(1).optional(),
 });
 
-export type ShopifyOrderApplyEditBody = z.infer<typeof shopifyOrderApplyEditBodySchema>;
-export type ShopifyOrderEditOperation = z.infer<typeof shopifyOrderEditOperationSchema>;
+export type ShopifyOrderApplyEditBody = z.infer<
+  typeof shopifyOrderApplyEditBodySchema
+>;
+export type ShopifyOrderEditOperation = z.infer<
+  typeof shopifyOrderEditOperationSchema
+>;
 
 const shopifyOrderCreateMailingSchema = z.object({
   address1: z.string().trim().min(1, 'Address line 1 is required'),
@@ -568,7 +576,7 @@ const shopifyOrderCreateLineSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-/** POST /api/order-office/shopify-orders/create */
+/** POST /api/shopify/orders/create */
 export const shopifyOrderCreateBodySchema = z.object({
   customerShopifyGid: z
     .string()
@@ -579,7 +587,9 @@ export const shopifyOrderCreateBodySchema = z.object({
     }),
   shippingAddress: shopifyOrderCreateMailingSchema,
   billingAddress: shopifyOrderCreateMailingSchema.optional(),
-  lineItems: z.array(shopifyOrderCreateLineSchema).min(1, 'Add at least one line item'),
+  lineItems: z
+    .array(shopifyOrderCreateLineSchema)
+    .min(1, 'Add at least one line item'),
   /** Default `shipping` so API-created orders are not marked "Shipping not required" for physical lines. */
   deliveryMethod: z.enum(['shipping', 'pickup']).optional().default('shipping'),
   /** Shop currency; ignored when `deliveryMethod` is `pickup`. */
@@ -588,7 +598,9 @@ export const shopifyOrderCreateBodySchema = z.object({
   note: z.string().max(5000).optional().nullable(),
 });
 
-export type ShopifyOrderCreateBody = z.infer<typeof shopifyOrderCreateBodySchema>;
+export type ShopifyOrderCreateBody = z.infer<
+  typeof shopifyOrderCreateBodySchema
+>;
 
 // ─── Address ─────────────────────────────────────────────────────────────────
 
@@ -628,11 +640,18 @@ const shopifyOrderRefSchema = z.object({
 });
 
 export const purchaseOrderCreateSchema = z.object({
-  poNumber: z.string().min(1, 'PO number is required').transform((s) => s.trim()),
+  poNumber: z
+    .string()
+    .min(1, 'PO number is required')
+    .transform((s) => s.trim()),
   supplierId: z.string().optional().nullable(),
   currency: z.string().min(1).default('CAD'),
   isAuto: z.boolean().optional().default(false),
-  expectedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional().nullable(),
+  expectedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+    .optional()
+    .nullable(),
   comment: z.string().trim().optional().nullable(),
   lineItems: z.array(purchaseOrderLineItemSchema).optional().default([]),
   shopifyOrderRefs: z.array(shopifyOrderRefSchema).optional().default([]),
@@ -640,7 +659,9 @@ export const purchaseOrderCreateSchema = z.object({
   billingAddress: addressSchema.optional().nullable(),
   billingSameAsShipping: z.boolean().optional().default(true),
   /** `public.delivery_location_presets.id` when ship-to came from a preset. */
-  deliveryLocationPresetId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  deliveryLocationPresetId: z
+    .union([z.string().trim().min(1), z.null()])
+    .optional(),
   /**
    * When true, creates the PO with hub `status = pending` (PO Pending tab / on hold),
    * same as marking an existing PO pending after lines are linked.
@@ -657,10 +678,18 @@ const purchaseOrderStatusUpdateSchema = z.enum([
 ]);
 
 export const purchaseOrderUpdateSchema = z.object({
-  poNumber: z.string().min(1).transform((s) => s.trim()).optional(),
+  poNumber: z
+    .string()
+    .min(1)
+    .transform((s) => s.trim())
+    .optional(),
   supplierId: z.string().optional().nullable(),
   currency: z.string().min(1).optional(),
-  expectedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional().nullable(),
+  expectedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+    .optional()
+    .nullable(),
   comment: z.string().trim().optional().nullable(),
   completedAt: z.string().datetime().optional().nullable(),
   /** Hub workflow / line fulfillment status (`order.purchase_orders.status`). */
@@ -670,7 +699,9 @@ export const purchaseOrderUpdateSchema = z.object({
   billingSameAsShipping: z.boolean().optional(),
   /** When true, sets `emailDeliveryWaivedAt` to now; when false, clears it. */
   emailDeliveryWaived: z.boolean().optional(),
-  deliveryLocationPresetId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  deliveryLocationPresetId: z
+    .union([z.string().trim().min(1), z.null()])
+    .optional(),
 });
 
 export type PurchaseOrderCreateBody = z.infer<typeof purchaseOrderCreateSchema>;
@@ -680,7 +711,11 @@ export type PurchaseOrderUpdateBody = z.infer<typeof purchaseOrderUpdateSchema>;
 
 export const deliveryLocationPresetCreateSchema = z.object({
   /** `public.locations.id` values that should point at this preset (optional). */
-  locationIds: z.array(z.string().trim().min(1)).max(500).optional().default([]),
+  locationIds: z
+    .array(z.string().trim().min(1))
+    .max(500)
+    .optional()
+    .default([]),
   name: z.string().trim().min(1, 'Name is required').max(200),
   company: z.string().trim().optional().nullable(),
   address1: z.string().trim().min(1),
@@ -729,7 +764,7 @@ export const receiveLineItemsSchema = z.object({
 
 export type ReceiveLineItemsBody = z.infer<typeof receiveLineItemsSchema>;
 
-/** PATCH /api/purchase-orders/[id]/line-items — per-line PO note (PDF + UI). */
+/** PATCH /api/order/purchase-orders/[id]/line-items — per-line PO note (PDF + UI). */
 export const purchaseOrderLineItemsNotePatchSchema = z.object({
   items: z
     .array(
@@ -745,15 +780,20 @@ export type PurchaseOrderLineItemsNotePatchBody = z.infer<
   typeof purchaseOrderLineItemsNotePatchSchema
 >;
 
-/** PUT /api/order-office/shopify-variant-notes — catalog default note per variant GID. */
+/** PUT /api/shopify/variant-notes — catalog default note per variant GID. */
 export const shopifyVariantOfficeNotePutSchema = z.object({
-  shopifyVariantGid: z.string().min(1).transform((s) => s.trim()),
+  shopifyVariantGid: z
+    .string()
+    .min(1)
+    .transform((s) => s.trim()),
   note: z.string().max(8000).nullable(),
 });
 
-export type ShopifyVariantOfficeNotePutBody = z.infer<typeof shopifyVariantOfficeNotePutSchema>;
+export type ShopifyVariantOfficeNotePutBody = z.infer<
+  typeof shopifyVariantOfficeNotePutSchema
+>;
 
-/** POST /api/order-office/shopify-orders/office-pending — inbox “on hold” flag on hub `shopify_orders`. */
+/** POST /api/shopify/orders/office-pending — inbox “on hold” flag on hub `shopify_orders`. */
 export const shopifyOrdersOfficePendingPostSchema = z.object({
   shopifyOrderIds: z.array(z.string().trim().min(1)).min(1),
   pending: z.boolean(),

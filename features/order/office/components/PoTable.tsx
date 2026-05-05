@@ -41,6 +41,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { CreateCustomOrderDialog } from './CreateCustomOrderDialog';
+import { QtyField } from './QtyField';
 
 type Props = {
   shopifyAdminStoreHandle?: string | null;
@@ -48,10 +50,9 @@ type Props = {
   lineItemsLoading?: boolean;
   onRetryLineItems?: () => void;
   /** Toggle hub PO pending (same as meta panel) — shown on the PO table header. */
-  onEditPo?: (
-    poId: string,
-    fields: EditPoFields,
-  ) => Promise<EditPoResult>;
+  onEditPo?: (poId: string, fields: EditPoFields) => Promise<EditPoResult>;
+  /** Inbox customer key segment for split PO # defaults when order snapshot omits account code. */
+  inboxCustomerPoSegment?: string;
 };
 
 const badgeCompact = 'rounded px-1.5 text-[10px]';
@@ -161,6 +162,7 @@ export function PoTable({
   lineItemsLoading,
   onRetryLineItems,
   onEditPo,
+  inboxCustomerPoSegment: _inboxCustomerPoSegment,
 }: Props) {
   const router = useRouter();
   const [pendingStatusSaving, setPendingStatusSaving] = useState(false);
@@ -201,15 +203,17 @@ export function PoTable({
 
   const [orderEditMode, setOrderEditMode] = useState(false);
   const [editLines, setEditLines] = useState<EditPoLine[]>([]);
-  const [origByGid, setOrigByGid] = useState<Map<string, { qty: number; price: string | null }>>(
-    () => new Map(),
-  );
+  const [origByGid, setOrigByGid] = useState<
+    Map<string, { qty: number; price: string | null }>
+  >(() => new Map());
   const linkedOrders = useMemo(
     () => purchaseOrder.panelMeta?.linkedShopifyOrders ?? [],
     [purchaseOrder.panelMeta],
   );
   const defaultTargetOrderId = linkedOrders[0]?.id ?? '';
-  const [newLineTargetOrderId, setNewLineTargetOrderId] = useState(() => defaultTargetOrderId);
+  const [newLineTargetOrderId, setNewLineTargetOrderId] = useState(
+    () => defaultTargetOrderId,
+  );
   const [savingOrderEdit, setSavingOrderEdit] = useState(false);
   const [orderEditError, setOrderEditError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -217,6 +221,46 @@ export function PoTable({
   const [noteEditingId, setNoteEditingId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
+
+  // ── Custom order selection ────────────────────────────────────────────────
+  const [customSelectMode, setCustomSelectMode] = useState(false);
+  const [selectedForCustom, setSelectedForCustom] = useState<Set<string>>(new Set());
+  const [customQtyOverrides, setCustomQtyOverrides] = useState<Record<string, number>>({});
+  const [customOrderDialogOpen, setCustomOrderDialogOpen] = useState(false);
+
+  const enterCustomSelectMode = useCallback(() => {
+    setSelectedForCustom(new Set());
+    setCustomQtyOverrides({});
+    setCustomSelectMode(true);
+  }, []);
+
+  const exitCustomSelectMode = useCallback(() => {
+    setCustomSelectMode(false);
+    setSelectedForCustom(new Set());
+    setCustomQtyOverrides({});
+  }, []);
+
+  const toggleCustomSelect = useCallback((id: string) => {
+    setSelectedForCustom((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectedItemsForCustom = useMemo(
+    () => items.filter((i) => selectedForCustom.has(i.id)),
+    [items, selectedForCustom],
+  );
+
+  const referenceOrderNames = useMemo(
+    () =>
+      purchaseOrder.panelMeta?.linkedShopifyOrders
+        .map((o) => o.name)
+        .join(', ') ?? null,
+    [purchaseOrder.panelMeta],
+  );
 
   const enterFulfillMode = useCallback(() => {
     const initChecked: Record<string, boolean> = {};
@@ -293,7 +337,10 @@ export function PoTable({
 
     const optimisticNext = sourceItems.map((i) => {
       if (!checked[i.id]) return i;
-      const quantityReceived = Math.max(0, recvValues[i.id] ?? i.quantityReceived);
+      const quantityReceived = Math.max(
+        0,
+        recvValues[i.id] ?? i.quantityReceived,
+      );
       return {
         ...i,
         quantityReceived,
@@ -307,7 +354,7 @@ export function PoTable({
 
     try {
       const res = await fetch(
-        `/api/purchase-orders/${purchaseOrder.id}/receive`,
+        `/api/order/purchase-orders/${purchaseOrder.id}/receive`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -375,37 +422,43 @@ export function PoTable({
     setOrderEditMode(true);
     // #region agent log
     {
-      const withGid = items.filter((li) => Boolean(li.shopifyLineItemGid)).length;
+      const withGid = items.filter((li) =>
+        Boolean(li.shopifyLineItemGid),
+      ).length;
       const unlinked = items.filter(
         (li) => !li.shopifyLineItemGid && !li.shopifyOrderLineItemId,
       ).length;
       const linkedNoGid = items.filter(
         (li) => Boolean(li.shopifyOrderLineItemId) && !li.shopifyLineItemGid,
       ).length;
-      fetch('http://127.0.0.1:7683/ingest/7f331419-eef8-4634-99ba-aa19be51640a', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '70b2ce',
-        },
-        body: JSON.stringify({
-          sessionId: '70b2ce',
-          runId: 'pre-fix',
-          hypothesisId: 'H1',
-          location: 'PoTable.tsx:enterOrderEditMode',
-          message: 'Edit order lines: line linkage vs editable gate',
-          data: {
-            poId: purchaseOrder.id,
-            lineCount: items.length,
-            withShopifyLineItemGid: withGid,
-            unlinkedNoShopifyOrderLineItem: unlinked,
-            linkedButMissingGid: linkedNoGid,
-            rowsWithoutGidMatchPlainQtyUi: items.filter((li) => !li.shopifyLineItemGid)
-              .length,
+      fetch(
+        'http://127.0.0.1:7683/ingest/7f331419-eef8-4634-99ba-aa19be51640a',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': '70b2ce',
           },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
+          body: JSON.stringify({
+            sessionId: '70b2ce',
+            runId: 'pre-fix',
+            hypothesisId: 'H1',
+            location: 'PoTable.tsx:enterOrderEditMode',
+            message: 'Edit order lines: line linkage vs editable gate',
+            data: {
+              poId: purchaseOrder.id,
+              lineCount: items.length,
+              withShopifyLineItemGid: withGid,
+              unlinkedNoShopifyOrderLineItem: unlinked,
+              linkedButMissingGid: linkedNoGid,
+              rowsWithoutGidMatchPlainQtyUi: items.filter(
+                (li) => !li.shopifyLineItemGid,
+              ).length,
+            },
+            timestamp: Date.now(),
+          }),
+        },
+      ).catch(() => {});
     }
     // #endregion
   }, [items, defaultTargetOrderId, linkedOrders, purchaseOrder.id]);
@@ -425,8 +478,11 @@ export function PoTable({
     setSavingOrderEdit(true);
     setOrderEditError(null);
     try {
-      const variantCatalogUpdates: { productGid: string; variantGid: string; price: string }[] =
-        [];
+      const variantCatalogUpdates: {
+        productGid: string;
+        variantGid: string;
+        price: string;
+      }[] = [];
       const groups = new Map<string, ShopifyOrderEditOperation[]>();
       const ensure = (id: string) => {
         if (!groups.has(id)) groups.set(id, []);
@@ -437,7 +493,9 @@ export function PoTable({
         linkedOrders.length === 1 ? linkedOrders[0].id : null;
 
       for (const [gid, o] of origByGid) {
-        const row = editLines.find((d) => d.shopifyLineItemGid === gid && !d._removed);
+        const row = editLines.find(
+          (d) => d.shopifyLineItemGid === gid && !d._removed,
+        );
         const orderLocalId =
           row?.shopifyOrderId ??
           items.find((i) => i.shopifyLineItemGid === gid)?.shopifyOrderId ??
@@ -541,29 +599,36 @@ export function PoTable({
       if (entries.length === 1) {
         const [localOrderId, ops] = entries[0];
         const addsHere = ops.some((o) => o.type === 'addVariant');
-        const res = await fetch(`/api/order-office/shopify-orders/${localOrderId}/apply-edit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            operations: ops,
-            variantCatalogUpdates:
-              variantCatalogUpdates.length > 0 ? variantCatalogUpdates : undefined,
-            purchaseOrderId: purchaseOrder.id,
-            appendLinesFromShopifyOrderLocalId:
-              hadAdds && addsHere && newLineTargetOrderId === localOrderId
-                ? localOrderId
-                : undefined,
-          }),
-        });
+        const res = await fetch(
+          `/api/shopify/orders/${localOrderId}/apply-edit`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              operations: ops,
+              variantCatalogUpdates:
+                variantCatalogUpdates.length > 0
+                  ? variantCatalogUpdates
+                  : undefined,
+              purchaseOrderId: purchaseOrder.id,
+              appendLinesFromShopifyOrderLocalId:
+                hadAdds && addsHere && newLineTargetOrderId === localOrderId
+                  ? localOrderId
+                  : undefined,
+            }),
+          },
+        );
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setOrderEditError(typeof body?.error === 'string' ? body.error : 'Save failed');
+          setOrderEditError(
+            typeof body?.error === 'string' ? body.error : 'Save failed',
+          );
           return;
         }
       } else {
         const responses = await Promise.all(
           entries.map(([localOrderId, ops]) =>
-            fetch(`/api/order-office/shopify-orders/${localOrderId}/apply-edit`, {
+            fetch(`/api/shopify/orders/${localOrderId}/apply-edit`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -577,12 +642,14 @@ export function PoTable({
         for (const res of responses) {
           const body = await res.json().catch(() => ({}));
           if (!res.ok) {
-            setOrderEditError(typeof body?.error === 'string' ? body.error : 'Save failed');
+            setOrderEditError(
+              typeof body?.error === 'string' ? body.error : 'Save failed',
+            );
             return;
           }
         }
         if (variantCatalogUpdates.length > 0) {
-          const vres = await fetch('/api/order-office/shopify/variant-catalog-updates', {
+          const vres = await fetch('/api/shopify/variant-catalog-updates', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ updates: variantCatalogUpdates }),
@@ -590,13 +657,15 @@ export function PoTable({
           const vbody = await vres.json().catch(() => ({}));
           if (!vres.ok) {
             setOrderEditError(
-              typeof vbody?.error === 'string' ? vbody.error : 'Catalog price update failed',
+              typeof vbody?.error === 'string'
+                ? vbody.error
+                : 'Catalog price update failed',
             );
             return;
           }
         }
         const rres = await fetch(
-          `/api/order-office/purchase-orders/${purchaseOrder.id}/resync-from-shopify`,
+          `/api/order/purchase-orders/${purchaseOrder.id}/resync-from-shopify`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -607,7 +676,9 @@ export function PoTable({
         );
         const rbody = await rres.json().catch(() => ({}));
         if (!rres.ok) {
-          setOrderEditError(typeof rbody?.error === 'string' ? rbody.error : 'PO resync failed');
+          setOrderEditError(
+            typeof rbody?.error === 'string' ? rbody.error : 'PO resync failed',
+          );
           return;
         }
       }
@@ -638,7 +709,10 @@ export function PoTable({
   const costSubtotal = useMemo(
     () =>
       tableRows.reduce((sum, item) => {
-        return sum + parseMoney(item.itemCost ?? null) * Math.max(0, item.quantity ?? 0);
+        return (
+          sum +
+          parseMoney(item.itemCost ?? null) * Math.max(0, item.quantity ?? 0)
+        );
       }, 0),
     [tableRows],
   );
@@ -657,8 +731,8 @@ export function PoTable({
           quantityReceived: 0,
           supplierRef: null,
           sku: hit.sku,
-          variantTitle: hit.variantTitle,
-          productTitle: `${hit.productTitle}${hit.variantTitle ? ` — ${hit.variantTitle}` : ''}`,
+          variantTitle: hit.variantTitle ?? null,
+          productTitle: hit.productTitle,
           imageUrl: hit.imageUrl ?? null,
           isCustom: false,
           itemPrice: hit.price ?? '0',
@@ -712,7 +786,9 @@ export function PoTable({
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center gap-2 py-6">
-            <p className="text-[12px] text-muted-foreground">Failed to load items.</p>
+            <p className="text-[12px] text-muted-foreground">
+              Failed to load items.
+            </p>
             <Button
               type="button"
               variant="outline"
@@ -820,7 +896,9 @@ export function PoTable({
       {orderEditMode && (
         <div className="px-3.5 py-2 border-b flex flex-wrap items-center gap-3 bg-muted/20 text-[11px]">
           <label className="flex items-center gap-2">
-            <span className="text-muted-foreground whitespace-nowrap">New lines attach to</span>
+            <span className="text-muted-foreground whitespace-nowrap">
+              New lines attach to
+            </span>
             <select
               className="border rounded px-2 py-1 text-[11px] bg-background"
               value={newLineTargetOrderId}
@@ -921,16 +999,60 @@ export function PoTable({
               )}
             </Button>
           </div>
+        ) : customSelectMode ? (
+          <div className="flex items-center gap-1 ml-1">
+            {purchaseOrder.customOrderCount > 0 && (
+              <Badge variant="amber" className="rounded px-1.5 text-[10px]">
+                Replacement: {purchaseOrder.customOrderCount}
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              size="xs"
+              className="text-[10px] rounded-[5px]"
+              onClick={exitCustomSelectMode}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              className="text-[10px] rounded-[5px] gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
+              disabled={selectedForCustom.size === 0}
+              onClick={() => setCustomOrderDialogOpen(true)}
+            >
+              Create Replacement Order
+              {selectedForCustom.size > 0 && (
+                <span className="opacity-75">({selectedForCustom.size})</span>
+              )}
+            </Button>
+          </div>
         ) : (
-          <Button
-            size="xs"
-            className="text-[10px] rounded-[5px] gap-1 ml-1"
-            onClick={enterFulfillMode}
-            disabled={orderEditMode}
-          >
-            <ChecklistIcon />
-            Fulfill Items
-          </Button>
+          <div className="flex items-center gap-1 ml-1">
+            {purchaseOrder.customOrderCount > 0 && (
+              <Badge variant="amber" className="rounded px-1.5 text-[10px]">
+                Replacement: {purchaseOrder.customOrderCount}
+              </Badge>
+            )}
+            <Button
+              size="xs"
+              variant="outline"
+              className="text-[10px] rounded-[5px] gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
+              disabled={orderEditMode}
+              onClick={enterCustomSelectMode}
+            >
+              Create Replacement Order
+            </Button>
+            <Button
+              size="xs"
+              className="text-[10px] rounded-[5px] gap-1"
+              onClick={enterFulfillMode}
+              disabled={orderEditMode}
+            >
+              <ChecklistIcon />
+              Fulfill Items
+            </Button>
+          </div>
         )}
       </div>
 
@@ -962,8 +1084,16 @@ export function PoTable({
             }}
           />
           <col style={{ width: fulfillMode ? '9%' : '8%' }} />
-          <col style={{ width: fulfillMode ? '14%' : orderEditMode ? '13%' : '16%' }} />
-          <col style={{ width: fulfillMode ? '12%' : orderEditMode ? '11%' : '13%' }} />
+          <col
+            style={{
+              width: fulfillMode ? '14%' : orderEditMode ? '13%' : '16%',
+            }}
+          />
+          <col
+            style={{
+              width: fulfillMode ? '12%' : orderEditMode ? '11%' : '13%',
+            }}
+          />
           {orderEditMode && <col style={{ width: '10%' }} />}
           {fulfillMode && <col style={{ width: '6%' }} />}
         </colgroup>
@@ -976,11 +1106,7 @@ export function PoTable({
                 ['product', 'Product', 'left'],
                 ['admin', '', 'center'],
                 ['ref', 'Ref.', 'left'],
-                [
-                  'cost',
-                  orderEditMode ? 'Shopify price' : 'Cost',
-                  'left',
-                ],
+                ['cost', orderEditMode ? 'Shopify price' : 'Cost', 'left'],
                 ['qty', 'Qty', 'left'],
                 ['recv', 'Received', 'left'],
                 ['note', 'Note', 'left'],
@@ -1026,7 +1152,8 @@ export function PoTable({
             const isChecked = !!checked[item.id];
             const rowDisabled = fulfillMode && !isChecked;
             const editable =
-              orderEditMode && (Boolean(row.shopifyLineItemGid) || Boolean(row._isNew));
+              orderEditMode &&
+              (Boolean(row.shopifyLineItemGid) || Boolean(row._isNew));
 
             return (
               <TableRow
@@ -1037,14 +1164,36 @@ export function PoTable({
                     ? isChecked
                       ? 'bg-blue-50/40 hover:bg-blue-50/60'
                       : 'opacity-40 hover:opacity-50'
-                    : 'hover:bg-muted/30',
+                    : customSelectMode
+                      ? selectedForCustom.has(item.id)
+                        ? 'hover:bg-muted/30'
+                        : 'opacity-40 hover:opacity-50'
+                      : 'hover:bg-muted/30',
                 )}
               >
-                {/* Shopify order # */}
+                {/* Shopify order # + custom order selector */}
                 <TableCell className="px-3 py-[7px]">
-                  <Badge variant="blue" className={badgeCompact}>
-                    {item.shopifyOrderNumber}
-                  </Badge>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5">
+                      {customSelectMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedForCustom.has(item.id)}
+                          onChange={() => toggleCustomSelect(item.id)}
+                          className="h-3 w-3 cursor-pointer accent-amber-600 shrink-0"
+                          title="Include in replacement order"
+                        />
+                      )}
+                      <Badge variant="blue" className={badgeCompact}>
+                        {item.shopifyOrderNumber}
+                      </Badge>
+                    </div>
+                    {(item.customOrderQty ?? 0) > 0 && (
+                      <span className="text-[9px] text-amber-700 font-medium leading-none">
+                        → {item.customOrderQty} replacement
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
 
                 {/* Product */}
@@ -1059,7 +1208,9 @@ export function PoTable({
                     sku={item.sku}
                     afterTitle={
                       item.isCustom ? (
-                        <span className="text-[9px] text-muted-foreground ml-1">(custom)</span>
+                        <span className="text-[9px] text-muted-foreground ml-1">
+                          (custom)
+                        </span>
                       ) : null
                     }
                   />
@@ -1088,13 +1239,18 @@ export function PoTable({
                         const v = e.target.value;
                         setEditLines((prev) =>
                           prev.map((d) =>
-                            d._local === row._local ? { ...d, itemPrice: v || null } : d,
+                            d._local === row._local
+                              ? { ...d, itemPrice: v || null }
+                              : d,
                           ),
                         );
                       }}
                     />
                   ) : (
-                    formatItemPrice(item.itemCost ?? null, purchaseOrder.currency)
+                    formatItemPrice(
+                      item.itemCost ?? null,
+                      purchaseOrder.currency,
+                    )
                   )}
                 </TableCell>
 
@@ -1110,11 +1266,25 @@ export function PoTable({
                         setEditLines((prev) =>
                           prev.map((d) =>
                             d._local === row._local
-                              ? { ...d, quantity: Number.isFinite(n) ? Math.max(0, n) : 0 }
+                              ? {
+                                  ...d,
+                                  quantity: Number.isFinite(n)
+                                    ? Math.max(0, n)
+                                    : 0,
+                                }
                               : d,
                           ),
                         );
                       }}
+                    />
+                  ) : customSelectMode ? (
+                    <QtyField
+                      value={customQtyOverrides[item.id] ?? item.quantity}
+                      onChange={(n) =>
+                        setCustomQtyOverrides((prev) => ({ ...prev, [item.id]: n }))
+                      }
+                      originalQty={item.quantity}
+                      className="min-w-14 w-full max-w-[5.5rem]"
                     />
                   ) : (
                     item.quantity
@@ -1143,7 +1313,9 @@ export function PoTable({
                     />
                   ) : (
                     <span className={recvCellTone(item.fulfillmentStatus)}>
-                      {item.quantityReceived === 0 ? '—' : item.quantityReceived}
+                      {item.quantityReceived === 0
+                        ? '—'
+                        : item.quantityReceived}
                     </span>
                   )}
                 </TableCell>
@@ -1187,20 +1359,31 @@ export function PoTable({
                               setNoteSaving(true);
                               try {
                                 const res = await fetch(
-                                  `/api/purchase-orders/${purchaseOrder.id}/line-items`,
+                                  `/api/order/purchase-orders/${purchaseOrder.id}/line-items`,
                                   {
                                     method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                    },
                                     body: JSON.stringify({
-                                      items: [{ id: item.id, note: noteDraft || null }],
+                                      items: [
+                                        {
+                                          id: item.id,
+                                          note: noteDraft || null,
+                                        },
+                                      ],
                                     }),
                                   },
                                 );
-                                const body = (await res.json().catch(() => null)) as {
+                                const body = (await res
+                                  .json()
+                                  .catch(() => null)) as {
                                   error?: string;
                                 } | null;
                                 if (!res.ok) {
-                                  toast.error(body?.error ?? 'Failed to save note');
+                                  toast.error(
+                                    body?.error ?? 'Failed to save note',
+                                  );
                                   return;
                                 }
                                 toast.success('Note saved');
@@ -1255,11 +1438,15 @@ export function PoTable({
                         if (row.shopifyLineItemGid) {
                           setEditLines((prev) =>
                             prev.map((d) =>
-                              d._local === row._local ? { ...d, _removed: true } : d,
+                              d._local === row._local
+                                ? { ...d, _removed: true }
+                                : d,
                             ),
                           );
                         } else {
-                          setEditLines((prev) => prev.filter((d) => d._local !== row._local));
+                          setEditLines((prev) =>
+                            prev.filter((d) => d._local !== row._local),
+                          );
                         }
                       }}
                     >
@@ -1298,6 +1485,22 @@ export function PoTable({
           <ShopifyProductSearchPanel onSelect={(h) => addSearchHitToPo(h)} />
         </DialogContent>
       </Dialog>
+
+      <CreateCustomOrderDialog
+        open={customOrderDialogOpen}
+        onOpenChange={(open) => {
+          setCustomOrderDialogOpen(open);
+          if (!open) {
+            setSelectedForCustom(new Set());
+            setCustomQtyOverrides({});
+            setCustomSelectMode(false);
+          }
+        }}
+        selectedItems={selectedItemsForCustom}
+        sourcePOId={purchaseOrder.id}
+        referenceOrderNames={referenceOrderNames}
+        initialQtyOverrides={customQtyOverrides}
+      />
     </div>
   );
 }

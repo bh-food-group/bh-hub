@@ -1,6 +1,6 @@
 /**
  * Shared types for Shopify Admin product search UIs (order, cost, inventory, …).
- * Matches `GET /api/order-office/shopify-products/search` → `{ hits[] }`.
+ * Matches `GET /api/shopify/products/search` → `{ hits[] }`.
  */
 
 /** Shopify Admin `Product.status` (office search / catalog). */

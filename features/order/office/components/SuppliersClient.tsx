@@ -134,7 +134,7 @@ export function SuppliersClient({
   function toggleFavorite(id: string) {
     toggleOptimistic(id);
     startTransition(async () => {
-      await fetch(`/api/suppliers/${id}`, { method: 'PATCH' });
+      await fetch(`/api/order/suppliers/${id}`, { method: 'PATCH' });
       router.refresh();
     });
   }
@@ -142,7 +142,7 @@ export function SuppliersClient({
   async function handleCreateGroup() {
     if (!newGroupName.trim()) return;
     setGroupError(null);
-    const res = await fetch('/api/supplier-groups', {
+    const res = await fetch('/api/order/supplier-groups', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newGroupName.trim() }),
@@ -160,7 +160,7 @@ export function SuppliersClient({
   async function handleUpdateGroup(id: string) {
     if (!editGroupName.trim()) return;
     setGroupError(null);
-    const res = await fetch(`/api/supplier-groups/${id}`, {
+    const res = await fetch(`/api/order/supplier-groups/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: editGroupName.trim() }),
@@ -176,7 +176,7 @@ export function SuppliersClient({
 
   async function handleDeleteGroup(id: string) {
     setGroupError(null);
-    const res = await fetch(`/api/supplier-groups/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/order/supplier-groups/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
       setGroupError(data?.error ?? 'Failed');

@@ -81,16 +81,18 @@ export function SeparatePoDialog({
   const [expectedDate, setExpectedDate] = useState(defaultExpectedYmd);
   const [shipTo, setShipTo] = useState('');
   const [separatePresetId, setSeparatePresetId] = useState<string | null>(null);
-  const [separateFromPreset, setSeparateFromPreset] = useState<PoAddress | null>(
-    null,
-  );
+  const [separateFromPreset, setSeparateFromPreset] =
+    useState<PoAddress | null>(null);
   const [comment, setComment] = useState('');
   const initialShipToLabelRef = useRef('');
+  const lineQtyForSeparatePo = (li: (typeof order.lineItems)[number]) =>
+    Math.max(1, li.shopifySourceLineQty ?? li.quantity);
+
   const [included, setIncluded] = useState<boolean[]>(() =>
-    order.lineItems.map((li) => li.includeInPo),
+    order.lineItems.map(() => true),
   );
   const [quantities, setQuantities] = useState<number[]>(() =>
-    order.lineItems.map((li) => li.quantity),
+    order.lineItems.map(lineQtyForSeparatePo),
   );
   const [creating, setCreating] = useState(false);
   const [separateLineNotes, setSeparateLineNotes] = useState<string[]>(() =>
@@ -133,7 +135,9 @@ export function SeparatePoDialog({
     if (!open || !justOpened) return;
     setPoNumber(defaultPoNumber);
     setPoNumberManual(false);
-  }, [open, order.id, defaultPoNumber]);
+    setIncluded(order.lineItems.map(() => true));
+    setQuantities(order.lineItems.map(lineQtyForSeparatePo));
+  }, [open, order, defaultPoNumber]);
 
   const anyIncluded = included.some(Boolean);
 

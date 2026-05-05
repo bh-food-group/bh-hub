@@ -173,6 +173,7 @@ export function CustomerSettingsClient({ customers }: Props) {
   const [shippingAddrEditOpen, setShippingAddrEditOpen] = useState(false);
   const [billingAddr, setBillingAddr] = useState<Address>(EMPTY_ADDRESS);
   const [billingSame, setBillingSame] = useState(true);
+  const [billingPresetId, setBillingPresetId] = useState<string | null>(null);
 
   function openEdit(c: CustomerRow) {
     setEditing(c);
@@ -183,6 +184,7 @@ export function CustomerSettingsClient({ customers }: Props) {
     setShippingAddrEditOpen(false);
     setBillingAddr((c.billingAddress as Address) ?? { ...EMPTY_ADDRESS });
     setBillingSame(c.billingSameAsShipping);
+    setBillingPresetId(null);
   }
 
   const filtered = search
@@ -215,7 +217,7 @@ export function CustomerSettingsClient({ customers }: Props) {
       payload.billingSameAsShipping = billingSame;
       payload.billingAddress = billingSame ? null : (billingAddr.address1.trim().length > 0 ? billingAddr : null);
 
-      const res = await fetch(`/api/shopify-customers/${editing.id}`, {
+      const res = await fetch(`/api/shopify/customers/${editing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -235,7 +237,7 @@ export function CustomerSettingsClient({ customers }: Props) {
     if (!editing) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/shopify-customers/${editing.id}`, {
+      const res = await fetch(`/api/shopify/customers/${editing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayNameOverride: '' }),
@@ -342,6 +344,7 @@ export function CustomerSettingsClient({ customers }: Props) {
           if (!open) {
             setEditing(null);
             setShippingAddrEditOpen(false);
+            setBillingPresetId(null);
           }
         }}
       >
@@ -468,7 +471,11 @@ export function CustomerSettingsClient({ customers }: Props) {
                   type="checkbox"
                   id="billing-same"
                   checked={billingSame}
-                  onChange={(e) => setBillingSame(e.target.checked)}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setBillingSame(next);
+                    if (next) setBillingPresetId(null);
+                  }}
                   className="h-3.5 w-3.5 rounded border-gray-300"
                 />
                 <label htmlFor="billing-same" className="text-xs">
@@ -477,11 +484,35 @@ export function CustomerSettingsClient({ customers }: Props) {
               </div>
 
               {!billingSame && (
-                <AddressFields
-                  label="Default Billing Address"
-                  address={billingAddr}
-                  onChange={setBillingAddr}
-                />
+                <div className="space-y-1.5">
+                  <DeliveryLocationPresetPicker
+                    compact
+                    className="pb-0.5"
+                    selectedPresetId={billingPresetId}
+                    onApply={({ presetId, poAddress }) => {
+                      setBillingPresetId(presetId);
+                      setBillingAddr({
+                        address1: poAddress.address1,
+                        address2: poAddress.address2 ?? '',
+                        city: poAddress.city,
+                        province: poAddress.province,
+                        postalCode: poAddress.postalCode,
+                        country:
+                          (poAddress.country ?? 'CA').trim().toUpperCase() ||
+                          'CA',
+                      });
+                    }}
+                    onClear={() => setBillingPresetId(null)}
+                  />
+                  <AddressFields
+                    label="Default Billing Address"
+                    address={billingAddr}
+                    onChange={(a) => {
+                      setBillingPresetId(null);
+                      setBillingAddr(a);
+                    }}
+                  />
+                </div>
               )}
 
               <div className="flex gap-2 pt-1">

@@ -119,7 +119,7 @@ export function DeliveryLocationPresetsClient({
   };
 
   const refresh = useCallback(async () => {
-    const res = await fetch('/api/delivery-location-presets');
+    const res = await fetch('/api/order/delivery-location-presets');
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       toast.error(typeof data?.error === 'string' ? data.error : 'Load failed');
@@ -147,12 +147,12 @@ export function DeliveryLocationPresetsClient({
         country: country.trim() || 'CA',
       };
       const res = editingId
-        ? await fetch(`/api/delivery-location-presets/${editingId}`, {
+        ? await fetch(`/api/order/delivery-location-presets/${editingId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           })
-        : await fetch('/api/delivery-location-presets', {
+        : await fetch('/api/order/delivery-location-presets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -172,7 +172,7 @@ export function DeliveryLocationPresetsClient({
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this delivery location preset?')) return;
-    const res = await fetch(`/api/delivery-location-presets/${id}`, {
+    const res = await fetch(`/api/order/delivery-location-presets/${id}`, {
       method: 'DELETE',
     });
     if (!res.ok) {

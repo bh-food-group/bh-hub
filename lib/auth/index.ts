@@ -26,7 +26,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      */
     async jwt({ token, user, trigger }) {
       const userId =
-        (typeof user?.id === 'string' ? user.id : undefined) ?? token.sub ?? undefined;
+        (typeof user?.id === 'string' ? user.id : undefined) ??
+        token.sub ??
+        undefined;
       if (!userId) return token;
 
       const needsProfile =
@@ -127,7 +129,9 @@ export function requireActiveSession(
 
 export function getOfficeOrAdmin(role: string | null | undefined): boolean {
   const r =
-    typeof role === 'string' ? role.toLowerCase() : String(role ?? '').toLowerCase();
+    typeof role === 'string'
+      ? role.toLowerCase()
+      : String(role ?? '').toLowerCase();
   return r === 'admin' || r === 'office';
 }
 
@@ -159,4 +163,8 @@ export function getCanSeeOrderSection(
     role === 'manager' ||
     role === 'supplier'
   );
+}
+
+export function canManageOrders(role: string | null | undefined): boolean {
+  return role === 'admin' || role === 'office' || role === 'supply';
 }

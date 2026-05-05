@@ -12,6 +12,7 @@ import type {
   OfficePoTableLineItem,
   OfficeShopifyTableLineItem,
 } from '../types/office-table-view';
+import { mergeProductAndVariantTitle } from '../types/purchase-order';
 
 type Props = {
   open: boolean;
@@ -38,14 +39,12 @@ type Props = {
 
 function shopifyLineLabel(l: OfficeShopifyTableLineItem): string {
   const t = (l.title ?? '').trim() || '—';
-  const vt = (l.variantTitle ?? '').trim();
-  return vt ? `${t} — ${vt}` : t;
+  return mergeProductAndVariantTitle(t, l.variantTitle);
 }
 
 function poLineLabel(l: OfficePoTableLineItem): string {
   const t = (l.productTitle ?? '').trim() || '—';
-  const vt = (l.variantTitle ?? '').trim();
-  return vt ? `${t} — ${vt}` : t;
+  return mergeProductAndVariantTitle(t, l.variantTitle);
 }
 
 function formatUnitPrice(amount: string | null, currency: string): string {

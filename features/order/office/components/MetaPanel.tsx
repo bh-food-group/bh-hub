@@ -122,6 +122,8 @@ type Props = {
   onArchive?: (key: SupplierKey) => void;
   onArchivePurchaseOrder?: (poId: string) => void;
   onUnarchive?: (key: SupplierKey) => void;
+  /** Provided only when the active inbox entry is a replacement order. */
+  onDeleteReplacementOrder?: () => void | Promise<void>;
   draftPoNumber?: string;
   poNumberIsManual?: boolean;
   onPoNumberChange?: (value: string) => void;
@@ -154,6 +156,7 @@ export function MetaPanel({
   onArchive,
   onArchivePurchaseOrder,
   onUnarchive,
+  onDeleteReplacementOrder,
   draftPoNumber,
   poNumberIsManual,
   onPoNumberChange,
@@ -177,6 +180,7 @@ export function MetaPanel({
           onCreatePo={onCreatePo}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
+          onDeleteReplacementOrder={onDeleteReplacementOrder}
           draftPoNumber={draftPoNumber}
           poNumberIsManual={poNumberIsManual}
           onPoNumberChange={onPoNumberChange}
@@ -367,6 +371,7 @@ function WithoutPoMeta({
   onCreatePo,
   onArchive,
   onUnarchive,
+  onDeleteReplacementOrder,
   draftPoNumber,
   poNumberIsManual,
   onPoNumberChange,
@@ -386,6 +391,7 @@ function WithoutPoMeta({
   ) => Promise<EditPoResult>;
   onArchive?: (key: SupplierKey) => void;
   onUnarchive?: (key: SupplierKey) => void;
+  onDeleteReplacementOrder?: () => void | Promise<void>;
   draftPoNumber?: string;
   poNumberIsManual?: boolean;
   onPoNumberChange?: (value: string) => void;
@@ -403,6 +409,7 @@ function WithoutPoMeta({
     customerDefaultShipping ?? { ...EMPTY_ADDR },
   );
   const [shipPresetId, setShipPresetId] = useState<string | null>(null);
+  const [billPresetId, setBillPresetId] = useState<string | null>(null);
   const [billAddr, setBillAddr] = useState<PoAddress>(
     customerDefaultBilling ?? { ...EMPTY_ADDR },
   );
@@ -414,6 +421,7 @@ function WithoutPoMeta({
     setShipAddrEditOpen(false);
     setShipAddr(customerDefaultShipping ?? { ...EMPTY_ADDR });
     setShipPresetId(null);
+    setBillPresetId(null);
     setBillAddr(customerDefaultBilling ?? { ...EMPTY_ADDR });
     setBillSame(customerBillingSameAsShipping ?? true);
   }, [
@@ -432,11 +440,7 @@ function WithoutPoMeta({
       expectedDate: (fd?.get('expectedDate') as string) || null,
       comment: (fd?.get('comment') as string) || null,
       shippingAddress: isAddrEmpty(shipAddr) ? null : shipAddr,
-      billingAddress: billSame
-        ? null
-        : isAddrEmpty(billAddr)
-          ? null
-          : billAddr,
+      billingAddress: billSame ? null : isAddrEmpty(billAddr) ? null : billAddr,
       billingSameAsShipping: billSame,
       deliveryLocationPresetId: shipPresetId,
     };
@@ -594,7 +598,11 @@ function WithoutPoMeta({
             type="checkbox"
             id={`bill-same-${activeKey}`}
             checked={billSame}
-            onChange={(e) => setBillSame(e.target.checked)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setBillSame(next);
+              if (next) setBillPresetId(null);
+            }}
             className="h-3 w-3 rounded border-gray-300"
           />
           <label
@@ -605,11 +613,26 @@ function WithoutPoMeta({
           </label>
         </div>
         {!billSame && (
-          <CompactAddressInput
-            label="Bill to"
-            address={billAddr}
-            onChange={setBillAddr}
-          />
+          <>
+            <DeliveryLocationPresetPicker
+              compact
+              className="mb-1.5"
+              selectedPresetId={billPresetId}
+              onApply={({ presetId, poAddress }) => {
+                setBillPresetId(presetId);
+                setBillAddr(poAddress);
+              }}
+              onClear={() => setBillPresetId(null)}
+            />
+            <CompactAddressInput
+              label="Bill to"
+              address={billAddr}
+              onChange={(a) => {
+                setBillPresetId(null);
+                setBillAddr(a);
+              }}
+            />
+          </>
         )}
       </Section>
 
@@ -669,6 +692,23 @@ function WithoutPoMeta({
             )}
           </>
         ) : null}
+        {onDeleteReplacementOrder && (
+          <>
+            <Separator className="my-0.5" />
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="w-full justify-center text-[11px] rounded-[5px] text-destructive hover:text-destructive"
+              onClick={() => {
+                const ok = window.confirm('Delete this replacement order? This cannot be undone.');
+                if (ok) void onDeleteReplacementOrder();
+              }}
+            >
+              Delete Replacement Order
+            </Button>
+          </>
+        )}
       </div>
     </form>
   );
@@ -738,7 +778,11 @@ function WithPoMeta({
   useEffect(() => {
     setEmailSentLocal(!!poPanelMeta?.emailSentAt);
     setEmailSendError(null);
-  }, [selectedPoBlockId, poPanelMeta?.emailSentAt, poPanelMeta?.emailDeliveryWaivedAt]);
+  }, [
+    selectedPoBlockId,
+    poPanelMeta?.emailSentAt,
+    poPanelMeta?.emailDeliveryWaivedAt,
+  ]);
 
   const performSendEmail = async () => {
     if (!selectedPoBlockId || selectedPoBlockId === '__drafts__') return;
@@ -833,7 +877,7 @@ function WithPoMeta({
     setSyncing(true);
     setSyncError(null);
     try {
-      const res = await fetch('/api/sync/shopify', { method: 'POST' });
+      const res = await fetch('/api/order/sync/shopify', { method: 'POST' });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
@@ -863,6 +907,7 @@ function WithPoMeta({
     ...EMPTY_ADDR,
   });
   const [editShipPresetId, setEditShipPresetId] = useState<string | null>(null);
+  const [editBillPresetId, setEditBillPresetId] = useState<string | null>(null);
   const [editBillAddr, setEditBillAddr] = useState<PoAddress>({
     ...EMPTY_ADDR,
   });
@@ -879,6 +924,7 @@ function WithPoMeta({
     setSaveFailed(false);
     setEditShipAddr(poShipAddr ?? { ...EMPTY_ADDR });
     setEditShipPresetId(poPanelMeta?.deliveryLocationPreset?.id ?? null);
+    setEditBillPresetId(null);
     setEditBillAddr(poBillAddr ?? { ...EMPTY_ADDR });
     setEditBillSame(poBillSame);
     setEditing(true);
@@ -1135,7 +1181,11 @@ function WithPoMeta({
                 type="checkbox"
                 id="edit-bill-same"
                 checked={editBillSame}
-                onChange={(e) => setEditBillSame(e.target.checked)}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setEditBillSame(next);
+                  if (next) setEditBillPresetId(null);
+                }}
                 className="h-3 w-3 rounded border-gray-300"
               />
               <label
@@ -1146,11 +1196,26 @@ function WithPoMeta({
               </label>
             </div>
             {!editBillSame && (
-              <CompactAddressInput
-                label=""
-                address={editBillAddr}
-                onChange={setEditBillAddr}
-              />
+              <>
+                <DeliveryLocationPresetPicker
+                  compact
+                  className="mb-1.5"
+                  selectedPresetId={editBillPresetId}
+                  onApply={({ presetId, poAddress }) => {
+                    setEditBillPresetId(presetId);
+                    setEditBillAddr(poAddress);
+                  }}
+                  onClear={() => setEditBillPresetId(null)}
+                />
+                <CompactAddressInput
+                  label=""
+                  address={editBillAddr}
+                  onChange={(a) => {
+                    setEditBillPresetId(null);
+                    setEditBillAddr(a);
+                  }}
+                />
+              </>
             )}
           </>
         ) : (
@@ -1213,7 +1278,8 @@ function WithPoMeta({
                 ) : poPanelMeta?.emailDeliveryWaivedAt ? (
                   <div className="flex flex-col gap-1.5">
                     <p className="text-[10px] text-muted-foreground text-center leading-snug px-0.5">
-                      Not sending email from the hub for this PO (reminders off).
+                      Not sending email from the hub for this PO (reminders
+                      off).
                     </p>
                     <Button
                       type="button"
@@ -1356,9 +1422,7 @@ function WithPoMeta({
                     variant="ghost"
                     size="xs"
                     className="w-full justify-center text-[11px] rounded-[5px] text-muted-foreground"
-                    onClick={() =>
-                      onArchivePurchaseOrder(selectedPoBlockId)
-                    }
+                    onClick={() => onArchivePurchaseOrder(selectedPoBlockId)}
                   >
                     Archive PO
                   </Button>

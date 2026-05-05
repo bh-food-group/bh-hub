@@ -50,7 +50,7 @@ export function PoEmailSettingsForm() {
     setLoadError(null);
     setLoadErrorExtra(null);
     try {
-      const res = await fetch('/api/office/po-email-settings');
+      const res = await fetch('/api/order/po-email-settings');
       const body = (await res.json().catch(() => ({}))) as SettingsApiPayload &
         SettingsErrorBody;
       if (!res.ok) {
@@ -88,7 +88,7 @@ export function PoEmailSettingsForm() {
     setSaving(true);
     setSavedFlash(false);
     try {
-      const res = await fetch('/api/office/po-email-settings', {
+      const res = await fetch('/api/order/po-email-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -127,7 +127,7 @@ export function PoEmailSettingsForm() {
           On open (and Retry), this form loads your saved subject, intro,
           signature, CC, and display name from the hub database via{' '}
           <code className="text-[10px] bg-muted px-1 rounded">
-            GET /api/office/po-email-settings
+            GET /api/order/po-email-settings
           </code>
           . SMTP values below are read from env only and are not part of that
           request.
