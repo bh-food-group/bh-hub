@@ -50,7 +50,13 @@ export async function POST(request: NextRequest) {
       include: {
         supplier: { select: { shopifyVendorName: true, company: true } },
         shopifyOrders: {
-          select: { id: true, name: true, customerId: true },
+          select: {
+            id: true,
+            name: true,
+            customerId: true,
+            shippingAddress: true,
+            billingAddress: true,
+          },
         },
       },
     });
@@ -64,8 +70,20 @@ export async function POST(request: NextRequest) {
         ? sourcePo.shopifyOrders.map((o) => o.name).join(', ')
         : null;
 
-    const customerId =
-      sourcePo.shopifyOrders.find((o) => o.customerId)?.customerId ?? null;
+    const sourceOrder = sourcePo.shopifyOrders.find((o) => o.customerId) ?? sourcePo.shopifyOrders[0];
+    const customerId = sourceOrder?.customerId ?? null;
+
+    // Prefer the address from the source order; fall back to customer record defaults.
+    let shippingAddress = sourceOrder?.shippingAddress ?? null;
+    let billingAddress = sourceOrder?.billingAddress ?? null;
+    if ((!shippingAddress || !billingAddress) && customerId) {
+      const customer = await prisma.shopifyCustomer.findUnique({
+        where: { id: customerId },
+        select: { shippingAddress: true, billingAddress: true },
+      });
+      shippingAddress ??= customer?.shippingAddress ?? null;
+      billingAddress ??= customer?.billingAddress ?? null;
+    }
 
     // Use supplier's Shopify vendor name so inbox can match back to the supplier.
     // Fall back to company name when shopifyVendorName is not set.
@@ -73,6 +91,7 @@ export async function POST(request: NextRequest) {
       sourcePo.supplier.shopifyVendorName ?? sourcePo.supplier.company ?? null;
 
     const customOrderId = createId();
+    const now = new Date();
 
     const customOrder = await prisma.shopifyOrder.create({
       data: {
@@ -84,7 +103,11 @@ export async function POST(request: NextRequest) {
         referenceOrderNames,
         sourcePurchaseOrderId,
         customerId,
-        syncedAt: new Date(),
+        syncedAt: now,
+        shopifyCreatedAt: now,
+        processedAt: now,
+        shippingAddress: shippingAddress ?? undefined,
+        billingAddress: billingAddress ?? undefined,
         lineItems: {
           create: lineItems.map((li) => {
             const liId = createId();

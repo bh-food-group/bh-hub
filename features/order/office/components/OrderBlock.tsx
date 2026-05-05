@@ -185,7 +185,72 @@ export function OrderBlock({
     return { ops };
   }, [draftLines]);
 
+  const saveReplacementEdit = useCallback(async () => {
+    type DbOp =
+      | { type: 'setQuantity'; lineItemId: string; quantity: number }
+      | { type: 'removeLine'; lineItemId: string }
+      | { type: 'addLine'; productTitle: string; quantity: number; sku?: string | null; itemPrice?: string | null; shopifyVariantGid?: string | null; shopifyProductGid?: string | null; imageUrl?: string | null };
+
+    const ops: DbOp[] = [];
+
+    for (const orig of order.lineItems) {
+      if (!orig.shopifyLineItemId) continue;
+      const curr = draftLines.find((d) => d.shopifyLineItemId === orig.shopifyLineItemId && !d.removed);
+      if (!curr) {
+        ops.push({ type: 'removeLine', lineItemId: orig.shopifyLineItemId });
+      } else if (curr.quantity !== orig.quantity) {
+        ops.push({ type: 'setQuantity', lineItemId: orig.shopifyLineItemId, quantity: curr.quantity });
+      }
+    }
+
+    for (const row of draftLines) {
+      if (row.removed || row.shopifyLineItemId) continue;
+      if (row.isNew && row.newKind === 'variant') {
+        ops.push({
+          type: 'addLine',
+          productTitle: row.productTitle,
+          quantity: Math.max(1, row.quantity),
+          sku: row.sku,
+          shopifyVariantGid: row.shopifyVariantGid ?? null,
+          shopifyProductGid: row.shopifyProductGid ?? null,
+          imageUrl: row.imageUrl ?? null,
+          itemPrice: row.itemPrice ?? null,
+        });
+      }
+    }
+
+    if (ops.length === 0) {
+      toast.message('No changes to save');
+      setEditing(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/order/custom-orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operations: ops }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(typeof body?.error === 'string' ? body.error : 'Save failed');
+        return;
+      }
+      toast.success('Replacement order updated');
+      setEditing(false);
+      router.refresh();
+    } catch {
+      toast.error('Network error');
+    } finally {
+      setSaving(false);
+    }
+  }, [order, draftLines, router]);
+
   const saveEdit = useCallback(async () => {
+    if (order.isCustomOrder) {
+      return saveReplacementEdit();
+    }
     if (!order.shopifyOrderGid) {
       toast.error('This order is missing a Shopify reference.');
       return;
@@ -223,7 +288,7 @@ export function OrderBlock({
     } finally {
       setSaving(false);
     }
-  }, [order, purchaseOrderId, buildSavePayload, router]);
+  }, [order, purchaseOrderId, saveReplacementEdit, buildSavePayload, router]);
 
   const addSearchHit = useCallback((hit: ShopifyProductSearchHit) => {
     const price = hit.price ?? '0';
@@ -350,14 +415,24 @@ export function OrderBlock({
               </Button>
             ) : null
           ) : order.isCustomOrder ? (
-            <Button
-              variant="outline"
-              size="xs"
-              className="text-[10px] rounded-[5px]"
-              onClick={() => setDialogOpen(true)}
-            >
-              Create PO
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="xs"
+                className="text-[10px] rounded-[5px]"
+                onClick={beginEdit}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                className="text-[10px] rounded-[5px]"
+                onClick={() => setDialogOpen(true)}
+              >
+                Create PO
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -440,7 +515,9 @@ export function OrderBlock({
             Add line
           </Button>
           <span className="text-[10px] text-muted-foreground">
-            Fulfilled lines may be blocked by Shopify from editing.
+            {order.isCustomOrder
+              ? 'Changes apply to the replacement order only.'
+              : 'Fulfilled lines may be blocked by Shopify from editing.'}
           </span>
         </div>
       )}

@@ -130,7 +130,8 @@ async function OfficeInboxContent() {
       const idRows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT o.id
         FROM "order".shopify_orders o
-        WHERE (o.display_fulfillment_status IS DISTINCT FROM 'FULFILLED')
+        WHERE o.is_custom_order IS NOT TRUE
+          AND (o.display_fulfillment_status IS DISTINCT FROM 'FULFILLED')
           AND o.shopify_created_at >= ${unlinkedCutoff}
           AND (o.display_financial_status IS NULL OR o.display_financial_status IS DISTINCT FROM 'VOIDED')
           AND (

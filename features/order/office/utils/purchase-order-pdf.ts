@@ -71,13 +71,15 @@ function addrLines(addr: PoAddress | null | undefined): string[] {
   return [line1, cityLine, country].filter(Boolean);
 }
 
-function ensurePage(doc: jsPDF, y: number, need: number): number {
-  // Reserve extra space for repeating footer metadata on every page.
-  if (y + need > PAGE_H - MARGIN - 28) {
-    doc.addPage();
-    return MARGIN;
-  }
-  return y;
+function makeEnsurePage(pageH: number) {
+  return function ensurePage(doc: jsPDF, y: number, need: number): number {
+    // Footer starts at pageH - MARGIN; leave a small gap above it.
+    if (y + need > pageH - MARGIN - 4) {
+      doc.addPage();
+      return MARGIN;
+    }
+    return y;
+  };
 }
 
 function drawSignatureBox(doc: jsPDF, x: number, y: number, w: number, h: number): void {
@@ -234,9 +236,11 @@ export type PoPdfInput = {
 
 // ─── PDF builder ──────────────────────────────────────────────────────────────
 
-function buildDoc(input: PoPdfInput): jsPDF {
+function buildDocCore(input: PoPdfInput, pageH: number): { doc: jsPDF; finalY: number } {
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   doc.setFont('helvetica', 'normal');
+
+  const ensurePage = makeEnsurePage(pageH);
 
   let y = MARGIN;
 
@@ -399,6 +403,8 @@ function buildDoc(input: PoPdfInput): jsPDF {
     rule(doc, y);
   }
 
+  const finalY = y;
+
   // ── Repeating footer (all pages) ─────────────────────────────────────────
   const pageCount = doc.getNumberOfPages();
   const shippingDateLabel = ymd2display(input.expectedDate) ?? '—';
@@ -411,14 +417,18 @@ function buildDoc(input: PoPdfInput): jsPDF {
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(120, 120, 120);
-    doc.text(`PO #${input.poNumber}`, MARGIN, PAGE_H - 14);
-    doc.text(`Ship To: ${shippingAddressLabel}`, MARGIN, PAGE_H - 10);
-    doc.text(`Shipping Date: ${shippingDateLabel}`, MARGIN, PAGE_H - 6);
-    doc.text(`Page ${i} of ${pageCount}`, PAGE_W - MARGIN, PAGE_H - 6, { align: 'right' });
+    doc.text(`PO #${input.poNumber}`, MARGIN, pageH - 14);
+    doc.text(`Ship To: ${shippingAddressLabel}`, MARGIN, pageH - 10);
+    doc.text(`Shipping Date: ${shippingDateLabel}`, MARGIN, pageH - 6);
+    doc.text(`Page ${i} of ${pageCount}`, PAGE_W - MARGIN, pageH - 6, { align: 'right' });
     doc.setTextColor(0, 0, 0);
   }
 
-  return doc;
+  return { doc, finalY };
+}
+
+function buildDoc(input: PoPdfInput): jsPDF {
+  return buildDocCore(input, PAGE_H).doc;
 }
 
 // ─── Build input from a PO block ──────────────────────────────────────────────

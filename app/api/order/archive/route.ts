@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOrderManager } from '@/lib/api/require-order-manager';
 import { prisma } from '@/lib/core/prisma';
 import { toApiErrorResponse } from '@/lib/core/errors';
+import { cancelShopifyOrderFromEnv } from '@/lib/shopify/orderEdit';
+import { isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,6 +25,26 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+
+    // Cancel real Shopify orders when archiving (best-effort; DB archive still proceeds).
+    if (archive && shopifyOrderIds?.length && isShopifyAdminEnvConfigured()) {
+      const rows = await prisma.shopifyOrder.findMany({
+        where: { id: { in: shopifyOrderIds }, isCustomOrder: { not: true } },
+        select: { shopifyGid: true },
+      });
+      const gids = rows
+        .map((r) => r.shopifyGid)
+        .filter((g): g is string => Boolean(g) && g.startsWith('gid://shopify/Order/'));
+
+      if (gids.length > 0) {
+        const results = await Promise.allSettled(gids.map((gid) => cancelShopifyOrderFromEnv(gid)));
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            console.error('[archive] Shopify order cancel failed:', r.reason);
+          }
+        }
+      }
+    }
 
     await prisma.$transaction(async (tx) => {
       if (purchaseOrderIds?.length) {

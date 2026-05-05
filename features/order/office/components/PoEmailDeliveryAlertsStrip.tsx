@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import type { PoEmailDeliveryAlertItem } from '../utils/collect-po-email-delivery-alerts';
@@ -26,46 +26,43 @@ export function PoEmailDeliveryAlertsStrip({
   onSent,
   onEmailDeliveryWaivedChange,
 }: Props) {
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [busyWaiveId, setBusyWaiveId] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [busyWaiveIds, setBusyWaiveIds] = useState<Set<string>>(new Set());
   const [errByPo, setErrByPo] = useState<Record<string, string>>({});
 
   if (items.length === 0) return null;
 
+  function addBusy(set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
+    set((s) => new Set(s).add(id));
+  }
+  function removeBusy(set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) {
+    set((s) => { const next = new Set(s); next.delete(id); return next; });
+  }
+
   async function send(poId: string) {
-    setErrByPo((m) => {
-      const next = { ...m };
-      delete next[poId];
-      return next;
-    });
-    setBusyId(poId);
+    setErrByPo((m) => { const next = { ...m }; delete next[poId]; return next; });
+    addBusy(setBusyIds, poId);
     try {
       const result = await postSendPurchaseOrderEmail(poId);
       if (!result.ok) {
-        setErrByPo((m) => ({
-          ...m,
-          [poId]: result.error,
-        }));
+        setErrByPo((m) => ({ ...m, [poId]: result.error }));
         return;
       }
       onSent?.(poId);
     } catch {
-      setErrByPo((m) => ({
-        ...m,
-        [poId]: 'Network error — could not send email',
-      }));
+      setErrByPo((m) => ({ ...m, [poId]: 'Network error — could not send email' }));
     } finally {
-      setBusyId(null);
+      removeBusy(setBusyIds, poId);
     }
   }
 
   async function setWaived(poId: string, waived: boolean) {
     if (!onEmailDeliveryWaivedChange) return;
-    setBusyWaiveId(poId);
+    addBusy(setBusyWaiveIds, poId);
     try {
       await onEmailDeliveryWaivedChange(poId, waived);
     } finally {
-      setBusyWaiveId(null);
+      removeBusy(setBusyWaiveIds, poId);
     }
   }
 
@@ -89,8 +86,8 @@ export function PoEmailDeliveryAlertsStrip({
         </div>
         <ul className="flex flex-col gap-1.5 max-h-[min(40vh,220px)] overflow-y-auto pr-0.5">
           {items.map((it) => {
-            const busy = busyId === it.purchaseOrderId;
-            const waiveBusy = busyWaiveId === it.purchaseOrderId;
+            const busy = busyIds.has(it.purchaseOrderId);
+            const waiveBusy = busyWaiveIds.has(it.purchaseOrderId);
             const err = errByPo[it.purchaseOrderId];
             return (
               <li key={it.purchaseOrderId}>
@@ -133,7 +130,7 @@ export function PoEmailDeliveryAlertsStrip({
                           void setWaived(it.purchaseOrderId, true);
                         }}
                       >
-                        {waiveBusy ? '…' : 'Dismiss'}
+                        {waiveBusy ? <Loader2 className="size-3.5 animate-spin" /> : 'Dismiss'}
                       </Button>
                       <Button
                         type="button"
@@ -146,7 +143,7 @@ export function PoEmailDeliveryAlertsStrip({
                           void send(it.purchaseOrderId);
                         }}
                       >
-                        {busy ? '…' : 'Send'}
+                        {busy ? <Loader2 className="size-3.5 animate-spin" /> : 'Send'}
                       </Button>
                     </div>
                   </div>

@@ -873,3 +873,58 @@ export function applyOrderEditAndCommitFromEnv(
 export function applyVariantCatalogPriceUpdatesFromEnv(updates: VariantCatalogPriceUpdate[]) {
   return applyVariantCatalogPriceUpdates(getShopifyAdminEnv(), updates);
 }
+
+// ─── Order cancel ─────────────────────────────────────────────────────────────
+
+const ORDER_CANCEL = `mutation OrderCancel($orderId: ID!, $reason: OrderCancelReason!, $refund: Boolean!, $restock: Boolean!, $notifyCustomer: Boolean) {
+  orderCancel(orderId: $orderId, reason: $reason, refund: $refund, restock: $restock, notifyCustomer: $notifyCustomer) {
+    job {
+      id
+    }
+    orderCancelUserErrors {
+      field
+      message
+    }
+  }
+}`;
+
+type OrderCancelPayload = {
+  orderCancel?: {
+    job?: { id: string } | null;
+    orderCancelUserErrors: { field?: string[] | null; message: string }[];
+  } | null;
+};
+
+/**
+ * Cancels a Shopify order via the Admin GraphQL API.
+ * No refund, no restock, no customer notification — purely internal.
+ * Shopify runs the cancel asynchronously (returns a Job); throws on GraphQL-level errors.
+ */
+export async function cancelShopifyOrder(
+  creds: ShopifyAdminCredentials,
+  orderGid: string,
+): Promise<void> {
+  const client = adminClient(creds);
+  const { data, errors } = await client.request<OrderCancelPayload>(ORDER_CANCEL, {
+    variables: {
+      orderId: orderGid,
+      reason: 'OTHER',
+      refund: false,
+      restock: false,
+      notifyCustomer: false,
+    },
+  });
+  const gqlMsg = graphqlErrorsMessage(errors);
+  if (gqlMsg) {
+    throw new AppError(`orderCancel: ${gqlMsg}`, 'SHOPIFY_GRAPHQL_ERROR', { orderGid }, 502, gqlMsg);
+  }
+  const userErrors = data?.orderCancel?.orderCancelUserErrors ?? [];
+  if (userErrors.length > 0) {
+    const msg = formatUserErrors(userErrors);
+    throw new AppError(`orderCancel: ${msg}`, 'SHOPIFY_ORDER_CANCEL', { orderGid, userErrors }, 422, msg);
+  }
+}
+
+export function cancelShopifyOrderFromEnv(orderGid: string): Promise<void> {
+  return cancelShopifyOrder(getShopifyAdminEnv(), orderGid);
+}
