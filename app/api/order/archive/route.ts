@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOrderManager } from '@/lib/api/require-order-manager';
 import { prisma } from '@/lib/core/prisma';
 import { toApiErrorResponse } from '@/lib/core/errors';
-import { cancelShopifyOrderFromEnv } from '@/lib/shopify/orderEdit';
+import { applyOrderEditAndCommitFromEnv } from '@/lib/shopify/orderEdit';
 import { isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
 
 export async function POST(request: NextRequest) {
@@ -26,22 +26,36 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
 
-    // Cancel real Shopify orders when archiving (best-effort; DB archive still proceeds).
+    // When archiving real Shopify orders, remove their line items on Shopify (qty → 0)
+    // rather than cancelling the whole order — the order is often split across POs.
     if (archive && shopifyOrderIds?.length && isShopifyAdminEnvConfigured()) {
       const rows = await prisma.shopifyOrder.findMany({
         where: { id: { in: shopifyOrderIds }, isCustomOrder: { not: true } },
-        select: { shopifyGid: true },
+        select: {
+          shopifyGid: true,
+          lineItems: { select: { shopifyGid: true } },
+        },
       });
-      const gids = rows
-        .map((r) => r.shopifyGid)
-        .filter((g): g is string => Boolean(g) && g.startsWith('gid://shopify/Order/'));
 
-      if (gids.length > 0) {
-        const results = await Promise.allSettled(gids.map((gid) => cancelShopifyOrderFromEnv(gid)));
-        for (const r of results) {
-          if (r.status === 'rejected') {
-            console.error('[archive] Shopify order cancel failed:', r.reason);
-          }
+      const results = await Promise.allSettled(
+        rows
+          .filter((r) => r.shopifyGid?.startsWith('gid://shopify/Order/'))
+          .map((r) => {
+            const ops = r.lineItems
+              .filter((li) => li.shopifyGid?.startsWith('gid://shopify/LineItem/'))
+              .map((li) => ({
+                type: 'setQuantity' as const,
+                shopifyLineItemGid: li.shopifyGid!,
+                quantity: 0,
+                restock: false,
+              }));
+            if (ops.length === 0) return Promise.resolve();
+            return applyOrderEditAndCommitFromEnv(r.shopifyGid!, ops);
+          }),
+      );
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          console.error('[archive] Shopify line item removal failed:', r.reason);
         }
       }
     }
