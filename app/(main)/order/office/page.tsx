@@ -76,8 +76,8 @@ async function OfficeInboxContent() {
     tableViewPoTotal,
     tableViewShopifyRows,
     tableViewPoRows,
-    rawCustomOrders,
-    customOrderCountRows,
+    rawReplacementOrders,
+    replacementOrderCountRows,
   ] = await Promise.all([
     // Active POs — skip lineItems entirely; use _count for total, separate query for done counts
     prisma.purchaseOrder.findMany({
@@ -193,7 +193,7 @@ async function OfficeInboxContent() {
     fetchPurchaseOrdersForOfficeTableView(0, OFFICE_TABLE_VIEW_FETCH_LIMIT),
     // Custom orders (internally created for missing/damaged items)
     prisma.shopifyOrder.findMany({
-      where: { isCustomOrder: true, archivedAt: null },
+      where: { isReplacementOrder: true, archivedAt: null },
       orderBy: { createdAt: 'desc' },
       include: {
         customer: true,
@@ -208,7 +208,7 @@ async function OfficeInboxContent() {
     // Count custom orders per source PO for the badge in PoTable
     prisma.shopifyOrder.groupBy({
       by: ['sourcePurchaseOrderId'],
-      where: { isCustomOrder: true, archivedAt: null, sourcePurchaseOrderId: { not: null } },
+      where: { isReplacementOrder: true, archivedAt: null, sourcePurchaseOrderId: { not: null } },
       _count: { id: true },
     }),
   ]);
@@ -216,12 +216,12 @@ async function OfficeInboxContent() {
   // Merge regular Shopify orders with custom orders for the inbox
   const unlinkedShopifyOrders = [
     ...unlinkedShopifyOrdersRaw,
-    ...(rawCustomOrders as unknown as typeof unlinkedShopifyOrdersRaw),
+    ...(rawReplacementOrders as unknown as typeof unlinkedShopifyOrdersRaw),
   ];
 
   // Build per-PO custom order count map for PoTable badge
-  const customOrderCountByPoId = new Map<string, number>(
-    customOrderCountRows
+  const replacementOrderCountByPoId = new Map<string, number>(
+    replacementOrderCountRows
       .filter((r) => r.sourcePurchaseOrderId != null)
       .map((r) => [r.sourcePurchaseOrderId as string, r._count.id]),
   );
@@ -301,7 +301,7 @@ async function OfficeInboxContent() {
     lineCountsByPoId,
     variantDefaultLineNotes,
     legacyOrphanPoLines,
-    customOrderCountByPoId,
+    replacementOrderCountByPoId,
   );
 
   const periods = buildWeekPeriods();

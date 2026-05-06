@@ -37,8 +37,8 @@ export type PoLineItemView = {
   fulfillmentStatus: LineFulfillmentStatus;
   /** PO / PDF line note (editable per PO; defaults from Item settings mapping). */
   note: string | null;
-  /** Total qty sent to custom orders from this PO line (hub-only, never touches Shopify). */
-  customOrderQty?: number;
+  /** Total qty sent to replacement orders from this PO line (hub-only, never touches Shopify). */
+  replacementQty?: number;
 };
 
 export type LinkedShopifyOrder = {
@@ -135,8 +135,8 @@ export type OfficePurchaseOrderBlock = {
   legacyExternalId: number | null;
   /** Email-channel PO, not archived/import legacy, no `emailSentAt`. */
   emailDeliveryOutstanding: boolean;
-  /** Count of active (non-archived) custom orders created from this PO. */
-  customOrderCount: number;
+  /** Count of active (non-archived) replacement orders created from this PO. */
+  replacementOrderCount: number;
 };
 
 /** Shopify placeholder when a product has only the default variant. */

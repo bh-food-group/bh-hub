@@ -361,5 +361,32 @@
     "pendingApprovalDescription": "조직 가입 요청이 승인 대기 중입니다. 관리자가 승인하면 액세스 권한을 얻게 됩니다.",
     "waitingForApproval": "관리자 승인 대기 중...",
     "refreshMessage": "요청이 승인되면 이 페이지가 자동으로 새로고침됩니다."
+  },
+  "Order": {
+    "refundReplacementView": "환불 및 교체",
+    "refundType": "환불",
+    "replacementType": "교체",
+    "createRefund": "환불 생성",
+    "reasonCategory": "사유",
+    "reasonSubcategory": "세부 사유",
+    "reasonNotes": "메모 (선택)",
+    "reasonSupplyShortage": "공급 부족",
+    "reasonItemDamage": "상품 파손",
+    "reasonHumanError": "인적 오류",
+    "reasonOutOfStock": "재고 없음",
+    "reasonPaymentNotCleared": "미결제",
+    "reasonUnknownDamage": "원인 불명 파손",
+    "reasonPoorPackaging": "포장 불량",
+    "reasonOffice": "오피스",
+    "reasonSupply": "공급업체",
+    "reasonDelivery": "배달",
+    "editReason": "사유 수정",
+    "byItem": "상품별",
+    "byReason": "사유별",
+    "byAmount": "금액",
+    "itemDetail": "상품 상세",
+    "noRecords": "환불/교체 기록이 없습니다.",
+    "dateRange": "날짜 범위",
+    "allTypes": "전체"
   }
 }

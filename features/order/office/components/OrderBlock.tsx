@@ -227,7 +227,7 @@ export function OrderBlock({
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/order/custom-orders/${order.id}`, {
+      const res = await fetch(`/api/order/replacement-orders/${order.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ operations: ops }),
@@ -248,7 +248,7 @@ export function OrderBlock({
   }, [order, draftLines, router]);
 
   const saveEdit = useCallback(async () => {
-    if (order.isCustomOrder) {
+    if (order.isReplacementOrder) {
       return saveReplacementEdit();
     }
     if (!order.shopifyOrderGid) {
@@ -330,7 +330,7 @@ export function OrderBlock({
       <div className="px-3.5 py-2 border-b bg-muted/40 flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-[12px] font-medium">
-            {order.isCustomOrder ? (
+            {order.isReplacementOrder ? (
               <>
                 <Badge variant="blue" className="rounded px-1.5 text-[10px]">
                   {order.referenceOrderNames ?? order.orderNumber}
@@ -414,7 +414,7 @@ export function OrderBlock({
                 Unarchive
               </Button>
             ) : null
-          ) : order.isCustomOrder ? (
+          ) : order.isReplacementOrder ? (
             <>
               <Button
                 variant="outline"
@@ -515,7 +515,7 @@ export function OrderBlock({
             Add line
           </Button>
           <span className="text-[10px] text-muted-foreground">
-            {order.isCustomOrder
+            {order.isReplacementOrder
               ? 'Changes apply to the replacement order only.'
               : 'Fulfilled lines may be blocked by Shopify from editing.'}
           </span>

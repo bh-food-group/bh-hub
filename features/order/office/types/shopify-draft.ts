@@ -49,8 +49,8 @@ export type ShopifyOrderDraft = {
   note?: string;
   noteIsWarning?: boolean;
   lineItems: PrePoLineDraft[];
-  /** True for internally-created custom orders (missing/damaged items); not from Shopify. */
-  isCustomOrder?: boolean;
-  /** Display-only Shopify order names this custom order was created from. */
+  /** True for internally-created replacement orders (missing/damaged items); not from Shopify. */
+  isReplacementOrder?: boolean;
+  /** Display-only Shopify order names this replacement order was created from. */
   referenceOrderNames?: string | null;
 };

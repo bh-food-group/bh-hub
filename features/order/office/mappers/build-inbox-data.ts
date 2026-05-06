@@ -650,7 +650,7 @@ function shopifyOrderToDraft(
     : orderEmail?.trim() ?? null;
 
   // Custom orders show all lines (not Shopify-synced, so no remaining-qty filter)
-  const rawLines = order.isCustomOrder
+  const rawLines = order.isReplacementOrder
     ? order.lineItems
     : supplierBucketId === UNASSIGNED_SUPPLIER_ID
       ? order.lineItems.filter(
@@ -674,7 +674,7 @@ function shopifyOrderToDraft(
     shopifyOrderGid: order.shopifyGid,
     currencyCode: order.currencyCode ?? null,
     orderNumber: order.name ?? order.id,
-    isCustomOrder: order.isCustomOrder ?? false,
+    isReplacementOrder: order.isReplacementOrder ?? false,
     referenceOrderNames: order.referenceOrderNames ?? null,
     customerEmail: customer?.email ?? order.email ?? null,
     customerPhone: customer?.phone ?? null,
@@ -706,7 +706,7 @@ function shopifyOrderToDraft(
           itemPrice: li.price ? String(li.price) : null,
           itemCost: li.unitCost ? String(li.unitCost) : null,
           shopifySourceLineQty,
-          quantity: order.isCustomOrder
+          quantity: order.isReplacementOrder
             ? shopifySourceLineQty
             : shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId),
           includeInPo: true,
@@ -735,7 +735,7 @@ export function buildInboxData(
    * {@link buildLegacyExtraQtyByShopifyLineItemId} across all inbox-linked orders on the PO.
    */
   legacyOrphanPoLines: LegacyOrphanPoLineForInbox[] = [],
-  customOrderCountByPoId: Map<string, number> = new Map(),
+  replacementOrderCountByPoId: Map<string, number> = new Map(),
 ): InboxData {
   const purchaseOrders: AnyPo[] = [...activePurchaseOrders, ...archivedPurchaseOrders];
   const initialStates: Record<SupplierKey, SupplierEntry> = {};
@@ -904,9 +904,9 @@ export function buildInboxData(
               ? mapPrismaPoToSlimBlock(
                   p,
                   lineCountsByPoId.get(p.id) ?? { total: 0, done: 0 },
-                  customOrderCountByPoId.get(p.id) ?? 0,
+                  replacementOrderCountByPoId.get(p.id) ?? 0,
                 )
-              : mapPrismaPoToBlock(p, undefined, customOrderCountByPoId.get(p.id) ?? 0),
+              : mapPrismaPoToBlock(p, undefined, replacementOrderCountByPoId.get(p.id) ?? 0),
           )
         : [];
       let fulfillDone = 0;

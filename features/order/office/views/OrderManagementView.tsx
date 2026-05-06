@@ -41,6 +41,7 @@ import {
   type OfficeTableFilterOption,
 } from '../components/OfficeTableSplitView';
 import { findSupplierKeyForPurchaseOrderId } from '../utils/find-supplier-key-for-po';
+import { RefundReplacementView } from '../components/RefundReplacementView';
 import type {
   OfficeTableViewPoRow,
   OfficeTableViewShopifyRow,
@@ -228,7 +229,9 @@ export function OrderManagementView({
 }: OrderManagementViewProps) {
   void _statusTabCounts;
   const [createShopifyOrderOpen, setCreateShopifyOrderOpen] = useState(false);
-  const [mainPanel, setMainPanel] = useState<'grouped' | 'table'>('grouped');
+  const [mainPanel, setMainPanel] = useState<'grouped' | 'table' | 'refunds'>(
+    'grouped',
+  );
   /** Table view: drill-in to same center/meta UI as Grouped view for one PO. */
   const [tablePoDetailPoId, setTablePoDetailPoId] = useState<string | null>(
     null,
@@ -785,14 +788,17 @@ export function OrderManagementView({
   );
 
   const isReplacementOrderEntry = useMemo(
-    () => currentDrafts.length > 0 && currentDrafts.every((d) => d.isCustomOrder),
+    () =>
+      currentDrafts.length > 0 && currentDrafts.every((d) => d.isReplacementOrder),
     [currentDrafts],
   );
 
   const handleDeleteReplacementOrder = useCallback(async () => {
-    const draft = currentDrafts.find((d) => d.isCustomOrder);
+    const draft = currentDrafts.find((d) => d.isReplacementOrder);
     if (!draft) return;
-    const res = await fetch(`/api/order/custom-orders/${draft.id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/order/replacement-orders/${draft.id}`, {
+      method: 'DELETE',
+    });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       toast.error(body.error ?? 'Failed to delete replacement order');
@@ -2159,7 +2165,7 @@ export function OrderManagementView({
       }
     }
 
-    if (mainPanel === 'table') return;
+    if (mainPanel === 'table' || mainPanel === 'refunds') return;
 
     const tabChanged =
       prevStatusTabRef.current != null &&
@@ -2337,7 +2343,7 @@ export function OrderManagementView({
   ]);
 
   useEffect(() => {
-    if (mainPanel === 'table') return;
+    if (mainPanel === 'table' || mainPanel === 'refunds') return;
     if (useInboxCustomerLayout || !activePeriod.startsWith('expected_')) return;
     if (!allExpectedBuckets?.length) return;
 
@@ -2393,7 +2399,7 @@ export function OrderManagementView({
   }, [activeStatusTab, showArchived, activePeriod, filteredGroups]);
 
   useEffect(() => {
-    if (mainPanel === 'table') return;
+    if (mainPanel === 'table' || mainPanel === 'refunds') return;
     if (useInboxCustomerLayout || !allExpectedBuckets?.length) return;
     if (
       selectedPoBlockId === '__drafts__' ||
@@ -2441,14 +2447,14 @@ export function OrderManagementView({
               poCreatedAt: new Date().toISOString(),
               legacyExternalId: null,
               emailDeliveryOutstanding: false,
-              customOrderCount: 0,
+              replacementOrderCount: 0,
             },
           ],
         } satisfies PostViewData)
       : (rawViewData ?? { type: 'pre' as const, shopifyOrderDrafts: [] });
 
   useEffect(() => {
-    if (mainPanel === 'table') return;
+    if (mainPanel === 'table' || mainPanel === 'refunds') return;
     if (!entry) return;
     const raw = patchedViewDataMap[activeKey];
     if (!raw) return;
@@ -2497,7 +2503,7 @@ export function OrderManagementView({
                 poCreatedAt: new Date().toISOString(),
                 legacyExternalId: null,
                 emailDeliveryOutstanding: false,
-                customOrderCount: 0,
+                replacementOrderCount: 0,
               },
             ],
           } satisfies PostViewData)
@@ -2780,7 +2786,9 @@ export function OrderManagementView({
           poPrintHeadline={poPrintHeadline}
           lineItemsLoading={lineItemsLoading}
           inboxShopifyOrderIds={metaInboxShopifyOrderIds}
-          onDeleteReplacementOrder={isReplacementOrderEntry ? handleDeleteReplacementOrder : undefined}
+          onDeleteReplacementOrder={
+            isReplacementOrderEntry ? handleDeleteReplacementOrder : undefined
+          }
         />
       </div>
     </div>
@@ -2823,6 +2831,16 @@ export function OrderManagementView({
         >
           Table view
         </button>
+        <button
+          type="button"
+          className={cn(
+            navBtn,
+            mainPanel === 'refunds' ? navBtnActive : navBtnIdle,
+          )}
+          onClick={() => setMainPanel('refunds')}
+        >
+          Failed Items
+        </button>
       </nav>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -2854,7 +2872,11 @@ export function OrderManagementView({
           </div>
         ) : null}
 
-        {mainPanel === 'table' ? (
+        {mainPanel === 'refunds' ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <RefundReplacementView />
+          </div>
+        ) : mainPanel === 'table' ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {tablePoDetailPoId ? (
               <>

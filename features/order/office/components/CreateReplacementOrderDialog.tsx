@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table';
 import { LineItemThumb } from './LineItemThumb';
 import { QtyField } from './QtyField';
+import { ReasonSelector, type ReasonValue } from './ReasonSelector';
 import type { PoLineItemView } from '../types';
 import { formatProductLabel } from '../types/purchase-order';
 
@@ -33,7 +34,7 @@ type Props = {
   initialQtyOverrides?: Record<string, number>;
 };
 
-export function CreateCustomOrderDialog({
+export function CreateReplacementOrderDialog({
   open,
   onOpenChange,
   selectedItems,
@@ -44,10 +45,12 @@ export function CreateCustomOrderDialog({
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
+  const [reason, setReason] = useState<ReasonValue>({ category: '', subcategory: '', notes: '' });
 
   useEffect(() => {
     if (open) {
       setQtyOverrides(initialQtyOverrides ?? {});
+      setReason({ category: '', subcategory: '', notes: '' });
     } else {
       setQtyOverrides({});
     }
@@ -65,7 +68,7 @@ export function CreateCustomOrderDialog({
   async function handleCreate() {
     setCreating(true);
     try {
-      const res = await fetch('/api/order/custom-orders', {
+      const res = await fetch('/api/order/replacement-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -82,6 +85,9 @@ export function CreateCustomOrderDialog({
             vendor: null,
             sourcePurchaseOrderLineItemId: item.id,
           })),
+          reasonCategory: reason.category || undefined,
+          reasonSubcategory: reason.subcategory || undefined,
+          reasonNotes: reason.notes || undefined,
         }),
       });
 
@@ -168,6 +174,8 @@ export function CreateCustomOrderDialog({
             </TableBody>
           </Table>
 
+          <ReasonSelector value={reason} onChange={setReason} disabled={creating} />
+
           <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="outline"
@@ -180,7 +188,7 @@ export function CreateCustomOrderDialog({
             <Button
               size="sm"
               onClick={handleCreate}
-              disabled={creating || selectedItems.length === 0}
+              disabled={creating || selectedItems.length === 0 || !reason.category || !reason.subcategory}
             >
               {creating ? 'Creating…' : 'Create Replacement Order'}
             </Button>

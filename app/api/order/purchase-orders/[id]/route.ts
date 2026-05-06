@@ -72,11 +72,11 @@ export async function GET(
       }
     }
 
-    const customOrderCount = await prisma.shopifyOrder.count({
-      where: { sourcePurchaseOrderId: id, isCustomOrder: true, archivedAt: null },
+    const replacementOrderCount = await prisma.shopifyOrder.count({
+      where: { sourcePurchaseOrderId: id, isReplacementOrder: true, archivedAt: null },
     });
 
-    return NextResponse.json({ ok: true, officeBlock: mapPrismaPoToBlock(po, variantImageFallback, customOrderCount) });
+    return NextResponse.json({ ok: true, officeBlock: mapPrismaPoToBlock(po, variantImageFallback, replacementOrderCount) });
   } catch (err: unknown) {
     return toApiErrorResponse(err, 'GET /api/order/purchase-orders/[id] error:');
   }

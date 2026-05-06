@@ -362,5 +362,32 @@
     "pendingApprovalDescription": "Your request to join the organization is pending approval. You will be notified once an administrator approves your request.",
     "waitingForApproval": "Waiting for administrator approval...",
     "refreshMessage": "This page will automatically refresh when your request is approved."
+  },
+  "Order": {
+    "refundReplacementView": "Refunds & Replacements",
+    "refundType": "Refund",
+    "replacementType": "Replacement",
+    "createRefund": "Create Refund",
+    "reasonCategory": "Reason",
+    "reasonSubcategory": "Detail",
+    "reasonNotes": "Notes (optional)",
+    "reasonSupplyShortage": "Supply Shortage",
+    "reasonItemDamage": "Item Damage",
+    "reasonHumanError": "Human Error",
+    "reasonOutOfStock": "Out of Stock",
+    "reasonPaymentNotCleared": "Payment Not Cleared",
+    "reasonUnknownDamage": "Unknown Damage",
+    "reasonPoorPackaging": "Poor Packaging",
+    "reasonOffice": "Office",
+    "reasonSupply": "Supply",
+    "reasonDelivery": "Delivery",
+    "editReason": "Edit Reason",
+    "byItem": "By Item",
+    "byReason": "By Reason",
+    "byAmount": "Amount",
+    "itemDetail": "Item Detail",
+    "noRecords": "No refund or replacement records yet.",
+    "dateRange": "Date Range",
+    "allTypes": "All Types"
   }
 }

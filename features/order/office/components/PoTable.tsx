@@ -41,7 +41,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { CreateCustomOrderDialog } from './CreateCustomOrderDialog';
+import { CreateReplacementOrderDialog } from './CreateReplacementOrderDialog';
+import { RefundCreateDialog } from './RefundCreateDialog';
 import { QtyField } from './QtyField';
 
 type Props = {
@@ -222,26 +223,28 @@ export function PoTable({
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
 
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
+
   // ── Custom order selection ────────────────────────────────────────────────
-  const [customSelectMode, setCustomSelectMode] = useState(false);
-  const [selectedForCustom, setSelectedForCustom] = useState<Set<string>>(new Set());
-  const [customQtyOverrides, setCustomQtyOverrides] = useState<Record<string, number>>({});
-  const [customOrderDialogOpen, setCustomOrderDialogOpen] = useState(false);
+  const [replacementSelectMode, setReplacementSelectMode] = useState(false);
+  const [selectedForReplacement, setSelectedForReplacement] = useState<Set<string>>(new Set());
+  const [replacementQtyOverrides, setReplacementQtyOverrides] = useState<Record<string, number>>({});
+  const [replacementOrderDialogOpen, setReplacementOrderDialogOpen] = useState(false);
 
-  const enterCustomSelectMode = useCallback(() => {
-    setSelectedForCustom(new Set());
-    setCustomQtyOverrides({});
-    setCustomSelectMode(true);
+  const enterReplacementSelectMode = useCallback(() => {
+    setSelectedForReplacement(new Set());
+    setReplacementQtyOverrides({});
+    setReplacementSelectMode(true);
   }, []);
 
-  const exitCustomSelectMode = useCallback(() => {
-    setCustomSelectMode(false);
-    setSelectedForCustom(new Set());
-    setCustomQtyOverrides({});
+  const exitReplacementSelectMode = useCallback(() => {
+    setReplacementSelectMode(false);
+    setSelectedForReplacement(new Set());
+    setReplacementQtyOverrides({});
   }, []);
 
-  const toggleCustomSelect = useCallback((id: string) => {
-    setSelectedForCustom((prev) => {
+  const toggleReplacementSelect = useCallback((id: string) => {
+    setSelectedForReplacement((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -249,9 +252,9 @@ export function PoTable({
     });
   }, []);
 
-  const selectedItemsForCustom = useMemo(
-    () => items.filter((i) => selectedForCustom.has(i.id)),
-    [items, selectedForCustom],
+  const selectedItemsForReplacement = useMemo(
+    () => items.filter((i) => selectedForReplacement.has(i.id)),
+    [items, selectedForReplacement],
   );
 
   const referenceOrderNames = useMemo(
@@ -999,18 +1002,18 @@ export function PoTable({
               )}
             </Button>
           </div>
-        ) : customSelectMode ? (
+        ) : replacementSelectMode ? (
           <div className="flex items-center gap-1 ml-1">
-            {purchaseOrder.customOrderCount > 0 && (
+            {purchaseOrder.replacementOrderCount > 0 && (
               <Badge variant="amber" className="rounded px-1.5 text-[10px]">
-                Replacement: {purchaseOrder.customOrderCount}
+                Replacement: {purchaseOrder.replacementOrderCount}
               </Badge>
             )}
             <Button
               variant="outline"
               size="xs"
               className="text-[10px] rounded-[5px]"
-              onClick={exitCustomSelectMode}
+              onClick={exitReplacementSelectMode}
             >
               Cancel
             </Button>
@@ -1018,20 +1021,20 @@ export function PoTable({
               size="xs"
               variant="outline"
               className="text-[10px] rounded-[5px] gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
-              disabled={selectedForCustom.size === 0}
-              onClick={() => setCustomOrderDialogOpen(true)}
+              disabled={selectedForReplacement.size === 0}
+              onClick={() => setReplacementOrderDialogOpen(true)}
             >
               Create Replacement Order
-              {selectedForCustom.size > 0 && (
-                <span className="opacity-75">({selectedForCustom.size})</span>
+              {selectedForReplacement.size > 0 && (
+                <span className="opacity-75">({selectedForReplacement.size})</span>
               )}
             </Button>
           </div>
         ) : (
           <div className="flex items-center gap-1 ml-1">
-            {purchaseOrder.customOrderCount > 0 && (
+            {purchaseOrder.replacementOrderCount > 0 && (
               <Badge variant="amber" className="rounded px-1.5 text-[10px]">
-                Replacement: {purchaseOrder.customOrderCount}
+                Replacement: {purchaseOrder.replacementOrderCount}
               </Badge>
             )}
             <Button
@@ -1039,10 +1042,21 @@ export function PoTable({
               variant="outline"
               className="text-[10px] rounded-[5px] gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
               disabled={orderEditMode}
-              onClick={enterCustomSelectMode}
+              onClick={enterReplacementSelectMode}
             >
               Create Replacement Order
             </Button>
+            {!allFulfilled && (
+              <Button
+                size="xs"
+                variant="outline"
+                className="text-[10px] rounded-[5px] gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                disabled={orderEditMode}
+                onClick={() => setRefundDialogOpen(true)}
+              >
+                Refund Items
+              </Button>
+            )}
             <Button
               size="xs"
               className="text-[10px] rounded-[5px] gap-1"
@@ -1164,8 +1178,8 @@ export function PoTable({
                     ? isChecked
                       ? 'bg-blue-50/40 hover:bg-blue-50/60'
                       : 'opacity-40 hover:opacity-50'
-                    : customSelectMode
-                      ? selectedForCustom.has(item.id)
+                    : replacementSelectMode
+                      ? selectedForReplacement.has(item.id)
                         ? 'hover:bg-muted/30'
                         : 'opacity-40 hover:opacity-50'
                       : 'hover:bg-muted/30',
@@ -1175,11 +1189,11 @@ export function PoTable({
                 <TableCell className="px-3 py-[7px]">
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5">
-                      {customSelectMode && (
+                      {replacementSelectMode && (
                         <input
                           type="checkbox"
-                          checked={selectedForCustom.has(item.id)}
-                          onChange={() => toggleCustomSelect(item.id)}
+                          checked={selectedForReplacement.has(item.id)}
+                          onChange={() => toggleReplacementSelect(item.id)}
                           className="h-3 w-3 cursor-pointer accent-amber-600 shrink-0"
                           title="Include in replacement order"
                         />
@@ -1188,9 +1202,9 @@ export function PoTable({
                         {item.shopifyOrderNumber}
                       </Badge>
                     </div>
-                    {(item.customOrderQty ?? 0) > 0 && (
+                    {(item.replacementQty ?? 0) > 0 && (
                       <span className="text-[9px] text-amber-700 font-medium leading-none">
-                        → {item.customOrderQty} replacement
+                        → {item.replacementQty} replacement
                       </span>
                     )}
                   </div>
@@ -1277,11 +1291,11 @@ export function PoTable({
                         );
                       }}
                     />
-                  ) : customSelectMode ? (
+                  ) : replacementSelectMode ? (
                     <QtyField
-                      value={customQtyOverrides[item.id] ?? item.quantity}
+                      value={replacementQtyOverrides[item.id] ?? item.quantity}
                       onChange={(n) =>
-                        setCustomQtyOverrides((prev) => ({ ...prev, [item.id]: n }))
+                        setReplacementQtyOverrides((prev) => ({ ...prev, [item.id]: n }))
                       }
                       originalQty={item.quantity}
                       className="min-w-14 w-full max-w-[5.5rem]"
@@ -1486,20 +1500,26 @@ export function PoTable({
         </DialogContent>
       </Dialog>
 
-      <CreateCustomOrderDialog
-        open={customOrderDialogOpen}
+      <CreateReplacementOrderDialog
+        open={replacementOrderDialogOpen}
         onOpenChange={(open) => {
-          setCustomOrderDialogOpen(open);
+          setReplacementOrderDialogOpen(open);
           if (!open) {
-            setSelectedForCustom(new Set());
-            setCustomQtyOverrides({});
-            setCustomSelectMode(false);
+            setSelectedForReplacement(new Set());
+            setReplacementQtyOverrides({});
+            setReplacementSelectMode(false);
           }
         }}
-        selectedItems={selectedItemsForCustom}
+        selectedItems={selectedItemsForReplacement}
         sourcePOId={purchaseOrder.id}
         referenceOrderNames={referenceOrderNames}
-        initialQtyOverrides={customQtyOverrides}
+        initialQtyOverrides={replacementQtyOverrides}
+      />
+      <RefundCreateDialog
+        open={refundDialogOpen}
+        onOpenChange={setRefundDialogOpen}
+        purchaseOrderId={purchaseOrder.id}
+        poLineItems={items}
       />
     </div>
   );

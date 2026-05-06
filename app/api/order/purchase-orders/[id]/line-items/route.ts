@@ -71,15 +71,15 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const customQtyRows = await prisma.shopifyOrderLineItem.findMany({
       where: {
         sourcePurchaseOrderLineItemId: { in: poLineItemIds },
-        order: { isCustomOrder: true, archivedAt: null },
+        order: { isReplacementOrder: true, archivedAt: null },
       },
       select: { sourcePurchaseOrderLineItemId: true, quantity: true },
     });
-    const customOrderQtyByLineId = new Map<string, number>();
+    const replacementQtyByLineId = new Map<string, number>();
     for (const r of customQtyRows) {
       if (r.sourcePurchaseOrderLineItemId) {
-        const prev = customOrderQtyByLineId.get(r.sourcePurchaseOrderLineItemId) ?? 0;
-        customOrderQtyByLineId.set(r.sourcePurchaseOrderLineItemId, prev + r.quantity);
+        const prev = replacementQtyByLineId.get(r.sourcePurchaseOrderLineItemId) ?? 0;
+        replacementQtyByLineId.set(r.sourcePurchaseOrderLineItemId, prev + r.quantity);
       }
     }
 
@@ -91,7 +91,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         shopifyOrders: po.shopifyOrders,
       },
       variantImageFallback,
-      customOrderQtyByLineId,
+      replacementQtyByLineId,
     );
 
     return NextResponse.json({ ok: true, lineItems });
@@ -190,13 +190,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       }
     }
 
-    const customOrderCount = await prisma.shopifyOrder.count({
-      where: { sourcePurchaseOrderId: purchaseOrderId, isCustomOrder: true, archivedAt: null },
+    const replacementOrderCount = await prisma.shopifyOrder.count({
+      where: { sourcePurchaseOrderId: purchaseOrderId, isReplacementOrder: true, archivedAt: null },
     });
 
     return NextResponse.json({
       ok: true,
-      officeBlock: mapPrismaPoToBlock(full, variantImageFallback, customOrderCount),
+      officeBlock: mapPrismaPoToBlock(full, variantImageFallback, replacementOrderCount),
     });
   } catch (err: unknown) {
     return toApiErrorResponse(

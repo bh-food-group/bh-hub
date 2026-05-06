@@ -160,7 +160,7 @@ export type PrismaPayloadForPoLineItemViews = {
 export function mapPrismaPayloadToPoLineItemViews(
   po: PrismaPayloadForPoLineItemViews,
   variantImageFallback?: Map<string, string | null>,
-  customOrderQtyByLineId?: Map<string, number>,
+  replacementQtyByLineId?: Map<string, number>,
 ): PoLineItemView[] {
   const storedStatus = po.status as PurchaseOrderStatus;
   const linkedOrders = po.shopifyOrders;
@@ -231,7 +231,7 @@ export function mapPrismaPayloadToPoLineItemViews(
         shopifyOrderNumber: owningOrder?.name ?? firstOrderName,
         fulfillmentStatus: lineFulfillmentStatus(li),
         note: li.note?.trim() ? li.note.trim() : null,
-        customOrderQty: customOrderQtyByLineId?.get(li.id) ?? 0,
+        replacementQty: replacementQtyByLineId?.get(li.id) ?? 0,
       };
     }),
   );
@@ -242,7 +242,7 @@ export function mapPrismaPayloadToPoLineItemViews(
 export function mapPrismaPoToBlock(
   po: PrismaPoWithRelations,
   variantImageFallback?: Map<string, string | null>,
-  customOrderCount = 0,
+  replacementOrderCount = 0,
 ): OfficePurchaseOrderBlock {
   const storedStatus = po.status as PurchaseOrderStatus;
   const linkedOrders = po.shopifyOrders;
@@ -359,7 +359,7 @@ export function mapPrismaPoToBlock(
     poCreatedAt: po.createdAt.toISOString(),
     legacyExternalId: po.legacyExternalId,
     emailDeliveryOutstanding,
-    customOrderCount,
+    replacementOrderCount,
   };
 }
 
@@ -371,7 +371,7 @@ export function mapPrismaPoToBlock(
 export function mapPrismaPoToSlimBlock(
   po: PrismaPoSlimWithRelations,
   lineCounts: { total: number; done: number },
-  customOrderCount = 0,
+  replacementOrderCount = 0,
 ): OfficePurchaseOrderBlock {
   const storedStatus = po.status as PurchaseOrderStatus;
   const linkedOrders = po.shopifyOrders;
@@ -477,7 +477,7 @@ export function mapPrismaPoToSlimBlock(
     poCreatedAt: po.createdAt.toISOString(),
     legacyExternalId: po.legacyExternalId,
     emailDeliveryOutstanding,
-    customOrderCount,
+    replacementOrderCount,
   };
 }
 

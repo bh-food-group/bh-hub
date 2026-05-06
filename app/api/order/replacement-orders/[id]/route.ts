@@ -43,13 +43,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const order = await prisma.shopifyOrder.findUnique({
       where: { id },
-      select: { id: true, isCustomOrder: true },
+      select: { id: true, isReplacementOrder: true },
     });
 
     if (!order) {
       return NextResponse.json({ ok: false, error: 'Order not found' }, { status: 404 });
     }
-    if (!order.isCustomOrder) {
+    if (!order.isReplacementOrder) {
       return NextResponse.json(
         { ok: false, error: 'Only replacement orders can be edited via this endpoint' },
         { status: 400 },
@@ -109,7 +109,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    return toApiErrorResponse(err, 'PATCH /api/order/custom-orders/[id] error:');
+    return toApiErrorResponse(err, 'PATCH /api/order/replacement-orders/[id] error:');
   }
 }
 
@@ -122,14 +122,14 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     const order = await prisma.shopifyOrder.findUnique({
       where: { id },
-      select: { id: true, isCustomOrder: true },
+      select: { id: true, isReplacementOrder: true },
     });
 
     if (!order) {
       return NextResponse.json({ ok: false, error: 'Order not found' }, { status: 404 });
     }
 
-    if (!order.isCustomOrder) {
+    if (!order.isReplacementOrder) {
       return NextResponse.json(
         { ok: false, error: 'Only replacement orders can be deleted via this endpoint' },
         { status: 400 },
@@ -140,6 +140,6 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    return toApiErrorResponse(err, 'DELETE /api/order/custom-orders/[id] error:');
+    return toApiErrorResponse(err, 'DELETE /api/order/replacement-orders/[id] error:');
   }
 }

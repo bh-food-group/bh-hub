@@ -140,6 +140,8 @@ model User {
   driver          Driver?
   /// `order.purchase_orders.created_by_id` — POs created in the hub (not legacy CSV id).
   purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreatedBy")
+  /// `order.refund_replacement_records.created_by_id`
+  refundReplacementRecords RefundReplacementRecord[] @relation("RefundReplacementCreatedBy")
 
   @@map("users")
   @@schema("public")
@@ -635,11 +637,11 @@ model ShopifyOrder {
   /// Office inbox: mark order “on hold” until cleared (not synced to Shopify).
   officePendingAt          DateTime?              @map("office_pending_at") @db.Timestamptz
   syncedAt                 DateTime               @default(now()) @map("synced_at") @db.Timestamptz
-  /// True for internally-created orders (missing/damaged items); not synced from Shopify.
-  isCustomOrder            Boolean                @default(false) @map("is_custom_order")
-  /// Display-only Shopify order names this custom order was created from (e.g. "#5902, #5903"). Null for real Shopify orders.
+  /// True for internally-created replacement orders (missing/damaged items); not synced from Shopify.
+  isReplacementOrder       Boolean                @default(false) @map("is_custom_order")
+  /// Display-only Shopify order names this replacement order was created from (e.g. "#5902, #5903"). Null for real Shopify orders.
   referenceOrderNames      String?                @map("reference_order_names") @db.Text
-  /// The PO that spawned this custom order. Null for real Shopify orders.
+  /// The PO that spawned this replacement order. Null for real Shopify orders.
   sourcePurchaseOrderId    String?                @map("source_purchase_order_id")
   createdAt                DateTime               @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                DateTime               @updatedAt @map("updated_at") @db.Timestamptz
@@ -650,7 +652,7 @@ model ShopifyOrder {
   @@index([orderNumber])
   @@index([customerId])
   @@index([displayFulfillmentStatus])
-  @@index([isCustomOrder])
+  @@index([isReplacementOrder])
   @@map("shopify_orders")
   @@schema("order")
 }
@@ -822,6 +824,7 @@ model PurchaseOrder {
   shopifyOrders         ShopifyOrder[]
   lineItems             PurchaseOrderLineItem[]
   emailDeliveries       PoEmailDelivery[]
+  refundReplacementRecords RefundReplacementRecord[]
   createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime                @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -969,5 +972,47 @@ model FulfillmentLineItem {
   @@index([purchaseOrderLineItemId])
   @@index([shopifyOrderLineItemId])
   @@map("fulfillment_line_items")
+  @@schema("order")
+}
+
+/// Tracks refunds (Shopify orderEdit qty=0) and replacements (custom order) per PO line item.
+/// type: 'refund' | 'replacement'
+/// reasonCategory: 'supply_shortage' | 'item_damage' | 'human_error'
+/// reasonSubcategory: 'out_of_stock' | 'payment_not_cleared' | 'unknown_damage' | 'poor_packaging' | 'office' | 'supply' | 'delivery'
+model RefundReplacementRecord {
+  id                      String        @id @default(cuid())
+  /// 'refund' | 'replacement'
+  type                    String
+  /// 'supply_shortage' | 'item_damage' | 'human_error'
+  reasonCategory          String        @map("reason_category")
+  /// subcategory within reasonCategory
+  reasonSubcategory       String        @map("reason_subcategory")
+  reasonNotes             String?       @map("reason_notes") @db.Text
+
+  purchaseOrderId         String        @map("purchase_order_id")
+  purchaseOrder           PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrderLineItemId String?       @map("purchase_order_line_item_id")
+  shopifyOrderId          String?       @map("shopify_order_id")
+  shopifyLineItemGid      String?       @map("shopify_line_item_gid")
+  /// For type='replacement': the ShopifyOrder.id of the created replacement order.
+  replacementOrderId      String?       @map("replacement_order_id")
+
+  productTitle            String        @map("product_title") @db.Text
+  variantTitle            String?       @map("variant_title")
+  sku                     String?
+  quantity                Int
+  unitPrice               Decimal?      @map("unit_price") @db.Decimal(14, 2)
+
+  createdById             String?       @map("created_by_id")
+  createdBy               User?         @relation("RefundReplacementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([purchaseOrderId])
+  @@index([type])
+  @@index([reasonCategory])
+  @@index([createdAt])
+  @@index([replacementOrderId])
+  @@map("refund_replacement_records")
   @@schema("order")
 }

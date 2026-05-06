@@ -5,7 +5,7 @@ import { toApiErrorResponse } from '@/lib/core/errors';
 import { createId } from '@paralleldrive/cuid2';
 import { z } from 'zod';
 
-const customOrderLineItemSchema = z.object({
+const replacementOrderLineItemSchema = z.object({
   sku: z.string().nullable().optional(),
   productTitle: z.string().min(1),
   variantTitle: z.string().nullable().optional(),
@@ -19,9 +19,12 @@ const customOrderLineItemSchema = z.object({
   sourcePurchaseOrderLineItemId: z.string().nullable().optional(),
 });
 
-const createCustomOrderSchema = z.object({
+const createReplacementOrderSchema = z.object({
   sourcePurchaseOrderId: z.string().min(1),
-  lineItems: z.array(customOrderLineItemSchema).min(1),
+  lineItems: z.array(replacementOrderLineItemSchema).min(1),
+  reasonCategory: z.string().optional(),
+  reasonSubcategory: z.string().optional(),
+  reasonNotes: z.string().nullable().optional(),
 });
 
 function generateReplacementOrderName(poNumber: string): string {
@@ -37,7 +40,7 @@ export async function POST(request: NextRequest) {
     if (!gate.ok) return gate.response;
 
     const body = await request.json();
-    const parsed = createCustomOrderSchema.safeParse(body);
+    const parsed = createReplacementOrderSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { ok: false, error: parsed.error.flatten() },
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { sourcePurchaseOrderId, lineItems } = parsed.data;
+    const { sourcePurchaseOrderId, lineItems, reasonCategory, reasonSubcategory, reasonNotes } = parsed.data;
 
     const sourcePo = await prisma.purchaseOrder.findUnique({
       where: { id: sourcePurchaseOrderId },
@@ -92,16 +95,16 @@ export async function POST(request: NextRequest) {
     const supplierVendor =
       sourcePo.supplier.shopifyVendorName ?? sourcePo.supplier.company ?? null;
 
-    const customOrderId = createId();
+    const replacementOrderId = createId();
     const now = new Date();
 
-    const customOrder = await prisma.shopifyOrder.create({
+    const replacementOrder = await prisma.shopifyOrder.create({
       data: {
-        id: customOrderId,
-        shopifyGid: `custom::${customOrderId}`,
+        id: replacementOrderId,
+        shopifyGid: `custom::${replacementOrderId}`,
         name: generateReplacementOrderName(sourcePo.poNumber),
         orderNumber: 0,
-        isCustomOrder: true,
+        isReplacementOrder: true,
         referenceOrderNames,
         sourcePurchaseOrderId,
         customerId,
@@ -136,8 +139,29 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ ok: true, customOrder }, { status: 201 });
+    // Create RefundReplacementRecord per line item when reason is provided.
+    if (reasonCategory && reasonSubcategory) {
+      await prisma.refundReplacementRecord.createMany({
+        data: lineItems.map((li) => ({
+          type: 'replacement',
+          reasonCategory,
+          reasonSubcategory,
+          reasonNotes: reasonNotes ?? null,
+          purchaseOrderId: sourcePurchaseOrderId,
+          purchaseOrderLineItemId: li.sourcePurchaseOrderLineItemId ?? null,
+          replacementOrderId: replacementOrder.id,
+          productTitle: li.productTitle,
+          variantTitle: li.variantTitle ?? null,
+          sku: li.sku ?? null,
+          quantity: li.quantity,
+          unitPrice: li.itemPrice ? parseFloat(li.itemPrice) : null,
+          createdById: gate.session.user.id,
+        })),
+      });
+    }
+
+    return NextResponse.json({ ok: true, replacementOrder }, { status: 201 });
   } catch (err: unknown) {
-    return toApiErrorResponse(err, 'POST /api/order/custom-orders error:');
+    return toApiErrorResponse(err, 'POST /api/order/replacement-orders error:');
   }
 }

@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         : { purchaseOrderLineItems: { some: {} } };
 
       const rows = await prisma.shopifyOrder.findMany({
-        where: { id: { in: shopifyOrderIds }, isCustomOrder: { not: true } },
+        where: { id: { in: shopifyOrderIds }, isReplacementOrder: { not: true } },
         select: {
           shopifyGid: true,
           lineItems: { where: lineItemFilter, select: { shopifyGid: true } },
