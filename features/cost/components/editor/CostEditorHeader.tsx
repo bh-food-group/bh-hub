@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Copy, Lock, LockOpen, Loader2, Save, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import TagInput from './TagInput';
+import RecipePrintButton from '../RecipePrintButton';
 import type { CostTag } from '../../types/cost';
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
   tags: CostTag[];
   locked: boolean;
   isExisting: boolean;
+  costId?: string;
   isSaving: boolean;
   isDeleting: boolean;
   isDirty: boolean;
@@ -30,6 +32,7 @@ export default function CostEditorHeader({
   tags,
   locked,
   isExisting,
+  costId,
   isSaving,
   isDeleting,
   isDirty,
@@ -55,6 +58,11 @@ export default function CostEditorHeader({
         />
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Print */}
+          {isExisting && costId && (
+            <RecipePrintButton costId={costId} />
+          )}
+
           {/* Lock toggle */}
           {isExisting && (
             <Button

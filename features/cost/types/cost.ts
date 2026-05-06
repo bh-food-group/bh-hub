@@ -19,6 +19,7 @@ export interface CostTag {
 export interface CostListItem {
   id: string;
   title: string;
+  locked: boolean;
   tags: CostTag[];
   prices: CostPrice[];
   createdAt: string | Date;

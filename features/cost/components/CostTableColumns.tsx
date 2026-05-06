@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/ui/data-table-column-header';
 import { createColumnHelper } from '@tanstack/react-table';
 import { format } from 'date-fns';
+import { Lock } from 'lucide-react';
 import TagBadge from './TagBadge';
 import RecipePrintButton from './RecipePrintButton';
 import { renderDefinedPrices, renderFinalPrice } from '../utils/priceHelpers';
@@ -12,6 +13,17 @@ import type { CostListItem } from '../types/cost';
 const columnHelper = createColumnHelper<CostListItem>();
 
 export const costColumns = [
+  columnHelper.accessor('locked', {
+    id: 'locked',
+    header: () => <span className="sr-only">Lock</span>,
+    cell: ({ getValue }) =>
+      getValue() ? (
+        <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+      ) : null,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { className: 'w-[36px] text-center' },
+  }),
   columnHelper.accessor('title', {
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Cost.title" />

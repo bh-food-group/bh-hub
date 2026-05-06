@@ -28,6 +28,7 @@ export default function CostEditor({ initialCost }: Props) {
         tags={editor.state.tags}
         locked={editor.state.locked}
         isExisting={!!editor.state.id}
+        costId={editor.state.id}
         isSaving={editor.isSaving}
         isDeleting={editor.isDeleting}
         isDirty={editor.isDirty}
