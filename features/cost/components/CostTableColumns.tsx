@@ -4,6 +4,7 @@ import { DataTableColumnHeader } from '@/components/ui/data-table-column-header'
 import { createColumnHelper } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import TagBadge from './TagBadge';
+import RecipePrintButton from './RecipePrintButton';
 import { renderDefinedPrices, renderFinalPrice } from '../utils/priceHelpers';
 import type { CostListItem } from '../types/cost';
 
@@ -81,5 +82,12 @@ export const costColumns = [
       );
     },
     meta: { className: 'min-w-[140px]' },
+  }),
+  columnHelper.display({
+    id: 'actions',
+    cell: ({ row }) => <RecipePrintButton costId={row.original.id} />,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { className: 'w-[40px]' },
   }),
 ];
