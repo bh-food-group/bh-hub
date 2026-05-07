@@ -16,28 +16,28 @@ export interface ReasonValue {
   notes: string;
 }
 
-interface Props {
-  value: ReasonValue;
-  onChange: (v: ReasonValue) => void;
-  disabled?: boolean;
-}
+export type ReasonSubcategory = { value: string; label: string };
+export type ReasonCategory = { value: string; label: string; subs: ReasonSubcategory[] };
 
-const REASON_MAP: Record<string, { label: string; subs: { value: string; label: string }[] }> = {
-  supply_shortage: {
+export const DEFAULT_REASON_OPTIONS: ReasonCategory[] = [
+  {
+    value: 'supply_shortage',
     label: 'Supply Shortage',
     subs: [
       { value: 'out_of_stock', label: 'Out of Stock' },
       { value: 'payment_not_cleared', label: 'Payment Not Cleared' },
     ],
   },
-  item_damage: {
+  {
+    value: 'item_damage',
     label: 'Item Damage',
     subs: [
       { value: 'unknown_damage', label: 'Unknown Damage' },
       { value: 'poor_packaging', label: 'Poor Packaging' },
     ],
   },
-  human_error: {
+  {
+    value: 'human_error',
     label: 'Human Error',
     subs: [
       { value: 'office', label: 'Office' },
@@ -45,10 +45,24 @@ const REASON_MAP: Record<string, { label: string; subs: { value: string; label: 
       { value: 'delivery', label: 'Delivery' },
     ],
   },
-};
+];
 
-export function ReasonSelector({ value, onChange, disabled }: Props) {
-  const subcategories = value.category ? (REASON_MAP[value.category]?.subs ?? []) : [];
+export const REASON_MAP: Record<string, { label: string; subs: ReasonSubcategory[] }> =
+  Object.fromEntries(DEFAULT_REASON_OPTIONS.map((c) => [c.value, { label: c.label, subs: c.subs }]));
+
+interface Props {
+  value: ReasonValue;
+  onChange: (v: ReasonValue) => void;
+  disabled?: boolean;
+  /** When provided, overrides DEFAULT_REASON_OPTIONS for dropdown options. */
+  options?: ReasonCategory[];
+}
+
+export function ReasonSelector({ value, onChange, disabled, options }: Props) {
+  const categories = options ?? DEFAULT_REASON_OPTIONS;
+  const subcategories = value.category
+    ? (categories.find((c) => c.value === value.category)?.subs ?? [])
+    : [];
 
   function handleCategoryChange(cat: string) {
     onChange({ category: cat, subcategory: '', notes: value.notes });
@@ -75,9 +89,9 @@ export function ReasonSelector({ value, onChange, disabled }: Props) {
               <SelectValue placeholder="Select reason…" />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(REASON_MAP).map(([k, v]) => (
-                <SelectItem key={k} value={k} className="text-xs">
-                  {v.label}
+              {categories.map((c) => (
+                <SelectItem key={c.value} value={c.value} className="text-xs">
+                  {c.label}
                 </SelectItem>
               ))}
             </SelectContent>

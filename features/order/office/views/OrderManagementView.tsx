@@ -789,7 +789,8 @@ export function OrderManagementView({
 
   const isReplacementOrderEntry = useMemo(
     () =>
-      currentDrafts.length > 0 && currentDrafts.every((d) => d.isReplacementOrder),
+      currentDrafts.length > 0 &&
+      currentDrafts.every((d) => d.isReplacementOrder),
     [currentDrafts],
   );
 
@@ -2839,7 +2840,7 @@ export function OrderManagementView({
           )}
           onClick={() => setMainPanel('refunds')}
         >
-          Failed Items
+          Missed Items
         </button>
       </nav>
 

@@ -62,6 +62,7 @@ interface DataTableProps<TData> {
   disableSorting?: boolean;
   disableHiding?: boolean;
   filterComponent?: React.ReactNode;
+  initialSorting?: SortingState;
 }
 
 export function DataTable<TData extends { id: string } = { id: string }>({
@@ -88,12 +89,13 @@ export function DataTable<TData extends { id: string } = { id: string }>({
   disableSorting = false,
   disableHiding = false,
   filterComponent,
+  initialSorting,
 }: DataTableProps<TData>) {
   const t = useTranslations();
 
   const [data, setData] = React.useState<TData[]>(originalData);
   const [internalSorting, setInternalSorting] = React.useState<SortingState>(
-    [],
+    initialSorting ?? [],
   );
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],

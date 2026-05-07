@@ -1,39 +1,73 @@
 'use client';
 
-import { createColumnHelper } from '@tanstack/react-table';
+import { createColumnHelper, sortingFns } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Pencil } from 'lucide-react';
+import { NotePopover } from './NotePopover';
 import type { RefundReplacementRow } from './RefundReplacementView';
+import type { ReasonCategory } from './ReasonSelector';
+
+// Null sorts to bottom regardless of sort direction
+function nullsLastSortingFn<T>(
+  rowA: { getValue: (id: string) => unknown },
+  rowB: { getValue: (id: string) => unknown },
+  columnId: string,
+): number {
+  const a = rowA.getValue(columnId);
+  const b = rowB.getValue(columnId);
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return sortingFns.datetime(rowA as never, rowB as never, columnId);
+}
 
 const columnHelper = createColumnHelper<RefundReplacementRow>();
 
-const REASON_LABELS: Record<string, string> = {
-  supply_shortage: 'Supply Shortage',
-  item_damage: 'Item Damage',
-  human_error: 'Human Error',
-  out_of_stock: 'Out of Stock',
-  payment_not_cleared: 'Payment Not Cleared',
-  unknown_damage: 'Unknown Damage',
-  poor_packaging: 'Poor Packaging',
-  office: 'Office',
-  supply: 'Supply',
-  delivery: 'Delivery',
-};
+function buildLabelMap(options: ReasonCategory[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const cat of options) {
+    map[cat.value] = cat.label;
+    for (const sub of cat.subs) {
+      map[sub.value] = sub.label;
+    }
+  }
+  return map;
+}
 
 export function buildRefundReplacementColumns(
   onEdit: (row: RefundReplacementRow) => void,
+  reasonOptions: ReasonCategory[],
 ) {
+  const labelMap = buildLabelMap(reasonOptions);
   return [
-    columnHelper.accessor('createdAt', {
-      header: 'Date',
-      cell: ({ getValue }) => (
-        <span className="text-[11px] tabular-nums text-muted-foreground">
-          {format(new Date(getValue()), 'yyyy-MM-dd')}
-        </span>
-      ),
-      meta: { className: 'w-[100px]' },
+    columnHelper.accessor((row) => row.purchaseOrder.expectedDate, {
+      id: 'deliveryDate',
+      header: 'Orig. Delivery',
+      cell: ({ getValue }) => {
+        const v = getValue();
+        return (
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {v ? format(new Date(v), 'yyyy-MM-dd') : '—'}
+          </span>
+        );
+      },
+      sortingFn: nullsLastSortingFn,
+      meta: { className: 'w-[110px]' },
+    }),
+    columnHelper.accessor('newDeliveryDate', {
+      header: 'New Delivery',
+      cell: ({ getValue }) => {
+        const v = getValue();
+        return (
+          <span className="text-[11px] tabular-nums text-muted-foreground">
+            {v ? format(new Date(v), 'yyyy-MM-dd') : '—'}
+          </span>
+        );
+      },
+      sortingFn: nullsLastSortingFn,
+      meta: { className: 'w-[110px]' },
     }),
     columnHelper.accessor('type', {
       header: 'Type',
@@ -89,16 +123,24 @@ export function buildRefundReplacementColumns(
     columnHelper.accessor('reasonCategory', {
       header: 'Reason',
       cell: ({ getValue }) => (
-        <span className="text-[11px]">{REASON_LABELS[getValue()] ?? getValue()}</span>
+        <span className="text-[11px]">{labelMap[getValue()] ?? getValue()}</span>
       ),
       meta: { className: 'w-[130px]' },
     }),
     columnHelper.accessor('reasonSubcategory', {
       header: 'Detail',
       cell: ({ getValue }) => (
-        <span className="text-[11px]">{REASON_LABELS[getValue()] ?? getValue()}</span>
+        <span className="text-[11px]">{labelMap[getValue()] ?? getValue()}</span>
       ),
       meta: { className: 'w-[130px]' },
+    }),
+    columnHelper.accessor('reasonNotes', {
+      header: 'Notes',
+      cell: ({ getValue }) => {
+        const v = getValue();
+        return v ? <NotePopover note={v} label="Detail note" /> : <span className="text-[11px] text-muted-foreground">—</span>;
+      },
+      meta: { className: 'w-[52px] text-center' },
     }),
     columnHelper.accessor('createdBy', {
       id: 'createdBy',

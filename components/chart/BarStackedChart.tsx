@@ -69,6 +69,10 @@ interface ChartBarStackedProps extends ClassName {
   ) => ChartBarStackedTooltipItem[];
   /** Per-bar X-axis tick index → extra classes (e.g. `fill-destructive` for holidays). */
   xAxisTickClassNameByIndex?: (index: number) => string | undefined;
+  /** Show the X-axis label (full item name) at the top of the tooltip. */
+  showTooltipLabel?: boolean;
+  /** Max chars for X-axis tick labels (default 8). */
+  xAxisTickMaxLength?: number;
 }
 
 export function ChartBarStacked({
@@ -86,6 +90,8 @@ export function ChartBarStacked({
   stackKeyOrder,
   sortTooltipPayload,
   xAxisTickClassNameByIndex,
+  showTooltipLabel = false,
+  xAxisTickMaxLength = 8,
   className,
 }: ChartBarStackedProps) {
   const orderedEntries = (() => {
@@ -213,7 +219,8 @@ export function ChartBarStacked({
         {...({
           active: props.active,
           payload,
-          hideLabel: true,
+          label: props.label,
+          hideLabel: !showTooltipLabel,
           formatter,
         } as React.ComponentProps<typeof ChartTooltipContent>)}
       />
@@ -234,7 +241,7 @@ export function ChartBarStacked({
               ? undefined
               : (value) =>
                   typeof value === 'string'
-                    ? value.slice(0, 8)
+                    ? value.slice(0, xAxisTickMaxLength)
                     : String(value ?? '')
           }
           tick={

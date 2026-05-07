@@ -188,7 +188,7 @@ export function CreateReplacementOrderDialog({
             <Button
               size="sm"
               onClick={handleCreate}
-              disabled={creating || selectedItems.length === 0 || !reason.category || !reason.subcategory}
+              disabled={creating || selectedItems.length === 0 || !reason.category}
             >
               {creating ? 'Creating…' : 'Create Replacement Order'}
             </Button>

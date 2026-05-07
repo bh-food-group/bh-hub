@@ -54,6 +54,7 @@ import { computeEmailDeliveryOutstanding } from '../utils/po-email-delivery-poli
 import { parseSupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
 import { orderShippingJsonToPoAddress } from '../utils/order-shipping-json-to-po-address';
 import type { LegacyOrphanPoLineForInbox } from '@/lib/order/fetch-legacy-orphan-po-lines-for-inbox';
+import { resolveCustomerDisplayName } from '@/lib/order/resolve-customer-display-name';
 
 // ─── DB payload types ─────────────────────────────────────────────────────────
 
@@ -312,8 +313,7 @@ function resolveCustomerFields(customer: {
   const override = customer.displayNameOverride?.trim() || null;
   const company = customer.company?.trim() || null;
   const shopifyDisplay = customer.displayName?.trim() || null;
-  const email = customer.email?.trim() || null;
-  const name = override ?? company ?? shopifyDisplay ?? email ?? 'Unknown';
+  const name = resolveCustomerDisplayName(customer);
   return {
     name,
     company,

@@ -1016,3 +1016,13 @@ model RefundReplacementRecord {
   @@map("refund_replacement_records")
   @@schema("order")
 }
+
+model RefundReasonOptions {
+  id        String   @id @default(cuid())
+  /// JSON array of ReasonCategory — managed via /api/order/reason-options
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("refund_reason_options")
+  @@schema("order")
+}

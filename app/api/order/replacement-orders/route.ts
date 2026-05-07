@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
           purchaseOrderId: sourcePurchaseOrderId,
           purchaseOrderLineItemId: li.sourcePurchaseOrderLineItemId ?? null,
           replacementOrderId: replacementOrder.id,
+          shopifyOrderId: sourceOrder?.id ?? null,
           productTitle: li.productTitle,
           variantTitle: li.variantTitle ?? null,
           sku: li.sku ?? null,

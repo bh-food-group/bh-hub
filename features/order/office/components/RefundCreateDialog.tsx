@@ -60,7 +60,7 @@ export function RefundCreateDialog({ open, onOpenChange, purchaseOrderId, poLine
   }
 
   async function handleCreate() {
-    if (!reason.category || !reason.subcategory) return;
+    if (!reason.category) return;
     setCreating(true);
     try {
       const res = await fetch('/api/order/refund-replacements', {
