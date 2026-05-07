@@ -16,6 +16,13 @@ export default async function ReportLocationPage({
   if (session?.user?.role === 'supply') redirect('/order');
   const isOfficeOrAdmin = getOfficeOrAdmin(session?.user?.role);
 
+  // Managers can only view their own location — redirect instead of 403.
+  if (!isOfficeOrAdmin) {
+    const managerLocationId = session?.user?.locationId;
+    if (!managerLocationId) redirect('/report');
+    if (managerLocationId !== locationId) redirect(`/report/location/${managerLocationId}`);
+  }
+
   const connections = await getConnections(session ?? null);
   const connection =
     connections.find((c) => c.locationId === locationId) ?? null;

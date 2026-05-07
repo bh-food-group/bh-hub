@@ -10,8 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ReasonSelector, DEFAULT_REASON_OPTIONS, type ReasonValue, type ReasonCategory } from './ReasonSelector';
+import { ReasonSelector, type ReasonValue, type ReasonCategory } from './ReasonSelector';
 import { ReasonOptionsManager } from './ReasonOptionsManager';
+import { useReasonOptions } from '../hooks/useReasonOptions';
 
 type Props = {
   open: boolean;
@@ -23,22 +24,19 @@ type Props = {
 };
 
 export function EditReasonDialog({ open, onOpenChange, recordId, initialReason, onSaved, onOptionsSaved }: Props) {
+  const { options: fetchedOptions } = useReasonOptions();
   const [saving, setSaving] = useState(false);
   const [reason, setReason] = useState<ReasonValue>(initialReason);
-  const [reasonOptions, setReasonOptions] = useState<ReasonCategory[]>(DEFAULT_REASON_OPTIONS);
+  const [reasonOptions, setReasonOptions] = useState<ReasonCategory[]>([]);
   const [showManager, setShowManager] = useState(false);
+
+  useEffect(() => {
+    if (fetchedOptions.length > 0) setReasonOptions(fetchedOptions);
+  }, [fetchedOptions]);
 
   useEffect(() => {
     if (!open) { setShowManager(false); return; }
     setReason(initialReason);
-    fetch('/api/order/reason-options')
-      .then((r) => r.json())
-      .then((data: { options?: ReasonCategory[] }) => {
-        if (Array.isArray(data.options) && data.options.length > 0) {
-          setReasonOptions(data.options);
-        }
-      })
-      .catch(() => {/* keep default */});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

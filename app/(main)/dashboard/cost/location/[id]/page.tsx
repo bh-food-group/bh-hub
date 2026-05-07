@@ -33,6 +33,18 @@ const LocationPage = async ({
   // Location
   // ===============================
   const { id } = await params;
+
+  // Managers can only view their own location — redirect instead of 403.
+  if (!isOfficeOrAdmin) {
+    const managerLocationId = session?.user?.locationId;
+    if (!managerLocationId) redirect('/dashboard');
+    if (managerLocationId !== id) {
+      const { yearMonth: sp } = await searchParams;
+      const qs = sp ? `?yearMonth=${sp}` : '';
+      redirect(`/dashboard/cost/location/${managerLocationId}${qs}`);
+    }
+  }
+
   const location = await prisma.location.findUnique({
     where: { id },
   });

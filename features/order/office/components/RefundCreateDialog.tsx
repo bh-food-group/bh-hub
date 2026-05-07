@@ -20,6 +20,7 @@ import {
 import { LineItemThumb } from './LineItemThumb';
 import { QtyField } from './QtyField';
 import { ReasonSelector, type ReasonValue } from './ReasonSelector';
+import { useReasonOptions } from '../hooks/useReasonOptions';
 import type { PoLineItemView } from '../types';
 import { formatProductLabel } from '../types/purchase-order';
 
@@ -38,6 +39,7 @@ function isRefundable(item: PoLineItemView): boolean {
 }
 
 export function RefundCreateDialog({ open, onOpenChange, purchaseOrderId, poLineItems }: Props) {
+  const { options: reasonOptions } = useReasonOptions();
   const [creating, setCreating] = useState(false);
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
   const [reason, setReason] = useState<ReasonValue>(DEFAULT_REASON);
@@ -165,7 +167,7 @@ export function RefundCreateDialog({ open, onOpenChange, purchaseOrderId, poLine
             </>
           )}
 
-          <ReasonSelector value={reason} onChange={setReason} disabled={creating} />
+          <ReasonSelector value={reason} onChange={setReason} disabled={creating} options={reasonOptions} />
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={creating}>

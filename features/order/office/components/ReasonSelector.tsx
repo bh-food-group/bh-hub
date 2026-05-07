@@ -47,19 +47,15 @@ export const DEFAULT_REASON_OPTIONS: ReasonCategory[] = [
   },
 ];
 
-export const REASON_MAP: Record<string, { label: string; subs: ReasonSubcategory[] }> =
-  Object.fromEntries(DEFAULT_REASON_OPTIONS.map((c) => [c.value, { label: c.label, subs: c.subs }]));
-
 interface Props {
   value: ReasonValue;
   onChange: (v: ReasonValue) => void;
   disabled?: boolean;
-  /** When provided, overrides DEFAULT_REASON_OPTIONS for dropdown options. */
-  options?: ReasonCategory[];
+  options: ReasonCategory[];
 }
 
 export function ReasonSelector({ value, onChange, disabled, options }: Props) {
-  const categories = options ?? DEFAULT_REASON_OPTIONS;
+  const categories = options;
   const subcategories = value.category
     ? (categories.find((c) => c.value === value.category)?.subs ?? [])
     : [];
@@ -83,7 +79,7 @@ export function ReasonSelector({ value, onChange, disabled, options }: Props) {
           <Select
             value={value.category}
             onValueChange={handleCategoryChange}
-            disabled={disabled}
+            disabled={disabled || categories.length === 0}
           >
             <SelectTrigger className="h-8 text-xs">
               <SelectValue placeholder="Select reason…" />

@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label';
 import { EditReasonDialog } from './EditReasonDialog';
 import { buildRefundReplacementColumns } from './refund-replacement-columns';
 import { Skeleton } from '@/components/ui/skeleton';
-import { DEFAULT_REASON_OPTIONS, type ReasonCategory } from './ReasonSelector';
+import type { ReasonCategory } from './ReasonSelector';
+import { useReasonOptions } from '../hooks/useReasonOptions';
 
 export type RefundReplacementRow = {
   id: string;
@@ -80,7 +81,8 @@ export function RefundReplacementView() {
   const [endDate, setEndDate] = useState(todayIso);
   const [typeFilter, setTypeFilter] = useState<'all' | 'refund' | 'replacement'>('all');
   const [editingRecord, setEditingRecord] = useState<RefundReplacementRow | null>(null);
-  const [reasonOptions, setReasonOptions] = useState<ReasonCategory[]>(DEFAULT_REASON_OPTIONS);
+  const { options: fetchedOptions } = useReasonOptions();
+  const [reasonOptions, setReasonOptions] = useState<ReasonCategory[]>([]);
   const [pieMode, setPieMode] = useState<'category' | 'detail'>('category');
 
   const fetchRecords = useCallback(async () => {
@@ -102,13 +104,8 @@ export function RefundReplacementView() {
   useEffect(() => { void fetchRecords(); }, [fetchRecords]);
 
   useEffect(() => {
-    fetch('/api/order/reason-options')
-      .then((r) => r.json())
-      .then((data: { options?: ReasonCategory[] }) => {
-        if (Array.isArray(data.options) && data.options.length > 0) setReasonOptions(data.options);
-      })
-      .catch(() => {});
-  }, []);
+    if (fetchedOptions.length > 0) setReasonOptions(fetchedOptions);
+  }, [fetchedOptions]);
 
   // ── Chart data ─────────────────────────────────────────────────────────────
 
