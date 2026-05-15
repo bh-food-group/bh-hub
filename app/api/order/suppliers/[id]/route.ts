@@ -9,6 +9,7 @@ import {
   legacyColumnsFromOrderChannel,
 } from '@/lib/order/supplier-order-channel';
 import { parseSupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
+import { syncLocationVendorPairs, upsertVendorMapping } from '@/lib/order/vendor-mapping';
 import { Prisma } from '@prisma/client';
 
 type RouteCtx = { params: Promise<{ id: string }> };
@@ -113,38 +114,33 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
       },
     });
 
-    // Auto-create/update vendor mapping for shopifyVendorName
+    // Auto-create/update vendor mapping for shopifyVendorName (null-location fallback)
     if (data.shopifyVendorName !== undefined && data.shopifyVendorName) {
-      await prisma.shopifyVendorMapping.upsert({
-        where: { vendorName: data.shopifyVendorName },
-        create: {
-          vendorName: data.shopifyVendorName,
-          supplierId: id,
-        },
-        update: { supplierId: id },
-      });
+      await upsertVendorMapping(id, { vendorName: data.shopifyVendorName });
     }
 
-    // Sync vendor alias mappings when provided
+    // Sync null-location vendor alias mappings when provided (legacy aliases)
     if (data.vendorAliases !== undefined) {
       const desiredAliases = new Set(data.vendorAliases ?? []);
-
-      // Delete mappings for this supplier that are no longer in the desired set
+      // Delete null-location mappings no longer in the desired set
       await prisma.shopifyVendorMapping.deleteMany({
         where: {
           supplierId: id,
+          shopifyLocationGid: null,
           vendorName: { notIn: [...desiredAliases] },
         },
       });
-
-      // Upsert all desired aliases
       for (const alias of desiredAliases) {
-        await prisma.shopifyVendorMapping.upsert({
-          where: { vendorName: alias },
-          create: { vendorName: alias, supplierId: id },
-          update: { supplierId: id },
-        });
+        await upsertVendorMapping(id, { vendorName: alias });
       }
+    }
+
+    // Sync location-specific vendor mapping pairs when provided
+    if (data.locationVendorPairs !== undefined) {
+      await syncLocationVendorPairs(
+        id,
+        (data.locationVendorPairs ?? []).filter((p) => !!p.shopifyLocationGid),
+      );
     }
 
     return NextResponse.json({ ok: true, supplier });

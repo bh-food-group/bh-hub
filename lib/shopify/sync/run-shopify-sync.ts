@@ -10,6 +10,7 @@ import {
 import { fetchAllShopifyCustomers } from '@/lib/shopify/fetchCustomers';
 import { fetchAllShopifyOrders } from '@/lib/shopify/fetchOrders';
 import { syncOneOrder, upsertShopifyCustomerFromAdminNode } from '@/lib/shopify/sync/upsert-order';
+import { createShopifyAdminGraphqlClient } from '@/lib/shopify/createFulfillment';
 
 const CONCURRENCY = 10;
 
@@ -157,6 +158,7 @@ export async function executeShopifySync(
       (since ? ` (since ${since.toISOString()})` : ` (${mode})`),
   );
 
+  const shopifyAdminClient = createShopifyAdminGraphqlClient(creds);
   let synced = 0;
   const totalOrders = orders.length;
   try {
@@ -164,7 +166,7 @@ export async function executeShopifySync(
       orders,
       CONCURRENCY,
       async (order) => {
-        await syncOneOrder(order);
+        await syncOneOrder(order, shopifyAdminClient);
         synced++;
       },
       {

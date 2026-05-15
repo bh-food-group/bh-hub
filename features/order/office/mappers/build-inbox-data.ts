@@ -200,7 +200,7 @@ export type ShopifyOrderWithCustomer = Prisma.ShopifyOrderGetPayload<{
   };
 }>;
 
-export type VendorMapping = { vendorName: string; supplierId: string };
+export type VendorMapping = { vendorName: string; supplierId: string; shopifyLocationGid?: string | null };
 
 // ─── Output: full props for OrderManagementView ───────────────────────────────
 
@@ -433,24 +433,39 @@ function getShopifyOrderCustomerIdentity(
 
 const UNASSIGNED_SUPPLIER_ID = '__unassigned__';
 
-function buildVendorLookup(
-  vendorMappings: VendorMapping[],
-): Map<string, string> {
-  const map = new Map<string, string>();
+type VendorLookups = {
+  /** (vendorName + ":" + locationGid) → supplierId — location-specific, takes priority */
+  byLocation: Map<string, string>;
+  /** vendorName → supplierId — default fallback when no location match */
+  byVendor: Map<string, string>;
+};
+
+function buildVendorLookup(vendorMappings: VendorMapping[]): VendorLookups {
+  const byLocation = new Map<string, string>();
+  const byVendor = new Map<string, string>();
   for (const m of vendorMappings) {
-    const k = m.vendorName.trim();
-    if (k) map.set(k, m.supplierId);
+    const vendor = m.vendorName.trim();
+    if (!vendor) continue;
+    if (m.shopifyLocationGid) {
+      byLocation.set(`${vendor}:${m.shopifyLocationGid}`, m.supplierId);
+    } else {
+      byVendor.set(vendor, m.supplierId);
+    }
   }
-  return map;
+  return { byLocation, byVendor };
 }
 
 function supplierIdForLineItem(
   li: ShopifyOrderWithCustomer['lineItems'][number],
-  vendorLookup: Map<string, string>,
+  lookups: VendorLookups,
 ): string {
   const vendor = li.vendor?.trim();
   if (!vendor) return UNASSIGNED_SUPPLIER_ID;
-  return vendorLookup.get(vendor) ?? UNASSIGNED_SUPPLIER_ID;
+  if (li.shopifyLocationGid) {
+    const located = lookups.byLocation.get(`${vendor}:${li.shopifyLocationGid}`);
+    if (located) return located;
+  }
+  return lookups.byVendor.get(vendor) ?? UNASSIGNED_SUPPLIER_ID;
 }
 
 /** Match legacy PO lines (no `shopify_order_line_item_id`) to Shopify lines. */
@@ -611,7 +626,7 @@ function shopifyLineRemainingQty(
 /** One bucket per supplier that still has ≥1 open unit on a line (plus unassigned). */
 function distinctSupplierIdsForOrder(
   order: ShopifyOrderWithCustomer,
-  vendorLookup: Map<string, string>,
+  lookups: VendorLookups,
   legacyExtraQtyByShopifyLineItemId: Map<string, number>,
 ): string[] {
   if (order.lineItems.length === 0) {
@@ -625,7 +640,7 @@ function distinctSupplierIdsForOrder(
   for (const li of order.lineItems) {
     if ((li.quantity ?? 0) <= 0) continue;
     if (shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId) <= 0) continue;
-    set.add(supplierIdForLineItem(li, vendorLookup));
+    set.add(supplierIdForLineItem(li, lookups));
   }
   return [...set];
 }
@@ -635,7 +650,7 @@ function distinctSupplierIdsForOrder(
 function shopifyOrderToDraft(
   order: ShopifyOrderWithCustomer,
   supplierBucketId: string,
-  vendorLookup: Map<string, string>,
+  lookups: VendorLookups,
   variantDefaultLineNotes: ReadonlyMap<string, string>,
   legacyExtraQtyByShopifyLineItemId: Map<string, number>,
 ): ShopifyOrderDraft {
@@ -656,12 +671,12 @@ function shopifyOrderToDraft(
       ? order.lineItems.filter(
           (li) =>
             shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId) > 0 &&
-            supplierIdForLineItem(li, vendorLookup) === UNASSIGNED_SUPPLIER_ID,
+            supplierIdForLineItem(li, lookups) === UNASSIGNED_SUPPLIER_ID,
         )
       : order.lineItems.filter(
           (li) =>
             shopifyLineRemainingQty(li, legacyExtraQtyByShopifyLineItemId) > 0 &&
-            supplierIdForLineItem(li, vendorLookup) === supplierBucketId,
+            supplierIdForLineItem(li, lookups) === supplierBucketId,
         );
 
   const rawNote = order.customerNote?.trim();
@@ -768,7 +783,7 @@ export function buildInboxData(
     }
   }
 
-  const vendorLookup = buildVendorLookup(vendorMappings);
+  const lookups = buildVendorLookup(vendorMappings);
   const legacyExtraQtyByShopifyLineItemId = buildLegacyExtraQtyByShopifyLineItemId(
     unlinkedShopifyOrders,
     legacyOrphanPoLines,
@@ -820,7 +835,7 @@ export function buildInboxData(
 
     const supIds = distinctSupplierIdsForOrder(
       o,
-      vendorLookup,
+      lookups,
       legacyExtraQtyByShopifyLineItemId,
     );
 
@@ -891,7 +906,7 @@ export function buildInboxData(
         shopifyOrderToDraft(
           o,
           supId,
-          vendorLookup,
+          lookups,
           variantDefaultLineNotes,
           legacyExtraQtyByShopifyLineItemId,
         ),

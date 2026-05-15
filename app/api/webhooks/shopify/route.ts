@@ -16,6 +16,8 @@ import { recomputePurchaseOrderStatusesForShopifyOrderId } from '@/lib/order/pur
 import { syncOneOrder } from '@/lib/shopify/sync/upsert-order';
 import { effectiveRestOrderLineItemQuantity } from '@/lib/shopify/line-item-effective-quantity';
 import type { ShopifyOrderNode } from '@/types/shopify';
+import { createShopifyAdminGraphqlClient } from '@/lib/shopify/createFulfillment';
+import { getShopifyAdminEnv, isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
 
 function verifyHmac(body: string, hmacHeader: string): boolean {
   const secret = process.env.SHOPIFY_WEBHOOK_SECRET?.trim();
@@ -226,7 +228,10 @@ export async function POST(request: NextRequest) {
 
     if (topic === 'orders/create' || topic === 'orders/updated') {
       const node = restOrderToNode(payload);
-      await syncOneOrder(node);
+      const shopifyAdminClient = isShopifyAdminEnvConfigured()
+        ? createShopifyAdminGraphqlClient(getShopifyAdminEnv())
+        : undefined;
+      await syncOneOrder(node, shopifyAdminClient);
       console.log(`[webhook/shopify] Synced order ${node.name}`);
     } else if (topic === 'customers/update') {
       await syncCustomerFromWebhook(payload);

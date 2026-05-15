@@ -382,6 +382,16 @@ const supplierWritableFieldsSchema = z.object({
   orderChannelPayload: z.unknown(),
   /** Vendor name aliases for ShopifyVendorMapping (handles vendor renames). */
   vendorAliases: z.array(z.string().trim().min(1)).optional(),
+  /** Location-aware vendor mapping pairs: (vendorName, optional shopifyLocationGid) → this supplier. */
+  locationVendorPairs: z
+    .array(
+      z.object({
+        vendorName: z.string().trim().min(1),
+        shopifyLocationGid: z.string().optional().nullable(),
+        shopifyLocationName: z.string().optional().nullable(),
+      }),
+    )
+    .optional(),
   /** Parsed server-side with `parseSupplierDeliverySchedule`; null clears. */
   deliverySchedule: z.unknown().optional().nullable(),
 });

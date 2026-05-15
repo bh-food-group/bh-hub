@@ -9,6 +9,7 @@ import {
   legacyColumnsFromOrderChannel,
 } from '@/lib/order/supplier-order-channel';
 import { parseSupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
+import { upsertVendorMapping } from '@/lib/order/vendor-mapping';
 import { Prisma } from '@prisma/client';
 
 export async function GET() {
@@ -109,26 +110,22 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Auto-create vendor mapping for shopifyVendorName
+    // Auto-create vendor mapping for shopifyVendorName (null-location fallback)
     if (data.shopifyVendorName) {
-      await prisma.shopifyVendorMapping.upsert({
-        where: { vendorName: data.shopifyVendorName },
-        create: {
-          vendorName: data.shopifyVendorName,
-          supplierId: supplier.id,
-        },
-        update: { supplierId: supplier.id },
-      });
+      await upsertVendorMapping(supplier.id, { vendorName: data.shopifyVendorName });
     }
 
-    // Create additional vendor alias mappings
+    // Create additional vendor alias mappings (null-location fallback)
     if (data.vendorAliases && data.vendorAliases.length > 0) {
       for (const alias of data.vendorAliases) {
-        await prisma.shopifyVendorMapping.upsert({
-          where: { vendorName: alias },
-          create: { vendorName: alias, supplierId: supplier.id },
-          update: { supplierId: supplier.id },
-        });
+        await upsertVendorMapping(supplier.id, { vendorName: alias });
+      }
+    }
+
+    // Create location-specific vendor mapping pairs
+    if (data.locationVendorPairs && data.locationVendorPairs.length > 0) {
+      for (const pair of data.locationVendorPairs) {
+        await upsertVendorMapping(supplier.id, pair);
       }
     }
 

@@ -175,7 +175,7 @@ async function OfficeInboxContent() {
       return rows;
     })(),
     prisma.shopifyVendorMapping.findMany({
-      select: { vendorName: true, supplierId: true },
+      select: { vendorName: true, supplierId: true, shopifyLocationGid: true },
     }),
     // Minimal line-item data for fulfillment counts (FK used for Shopify-mirror rules)
     prisma.purchaseOrderLineItem.findMany({

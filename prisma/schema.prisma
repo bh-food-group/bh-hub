@@ -676,6 +676,8 @@ model ShopifyOrderLineItem {
   price                  Decimal?                @db.Decimal(14, 2)
   /// Variant inventory unit cost (Shopify), when available.
   unitCost               Decimal?                @map("unit_cost") @db.Decimal(14, 2)
+  /// Shopify Location GID from FulfillmentOrder.assignedLocation — populated during order sync.
+  shopifyLocationGid     String?                 @map("shopify_location_gid")
   /// For custom orders only: the PO line item this line was created from (hub-only, no FK constraint).
   sourcePurchaseOrderLineItemId String?          @map("source_purchase_order_line_item_id")
   createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz
@@ -742,15 +744,21 @@ model Supplier {
   @@schema("order")
 }
 
-/// Maps Shopify vendor name strings to a Supplier. Multiple names (aliases) can
-/// point to the same Supplier, handling vendor renames gracefully.
+/// Maps (Shopify vendor name, optional Shopify Location GID) → Supplier.
+/// Multiple (vendorName, locationGid) pairs can point to the same Supplier.
+/// When shopifyLocationGid is set, this mapping takes priority over the null-location fallback.
 model ShopifyVendorMapping {
-  id         String   @id @default(cuid())
-  vendorName String   @unique @map("vendor_name")
-  supplierId String   @map("supplier_id")
-  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                  String   @id @default(cuid())
+  vendorName          String   @map("vendor_name")
+  /// Shopify Location GID (e.g. "gid://shopify/Location/123"). Null = default fallback for all locations.
+  shopifyLocationGid  String?  @map("shopify_location_gid")
+  /// Cached Shopify location name for display (populated at mapping creation time).
+  shopifyLocationName String?  @map("shopify_location_name")
+  supplierId          String   @map("supplier_id")
+  supplier            Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
 
+  @@unique([vendorName, shopifyLocationGid])
   @@index([supplierId])
   @@map("shopify_vendor_mappings")
   @@schema("order")

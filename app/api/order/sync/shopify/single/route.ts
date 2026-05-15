@@ -7,9 +7,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOrderManager } from '@/lib/api/require-order-manager';
-import { isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
+import { getShopifyAdminEnv, isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
 import { fetchShopifyOrdersPageFromEnv } from '@/lib/shopify/fetchOrders';
 import { syncOneOrder } from '@/lib/shopify/sync/upsert-order';
+import { createShopifyAdminGraphqlClient } from '@/lib/shopify/createFulfillment';
 
 export async function POST(request: NextRequest) {
   const gate = await requireOrderManager();
@@ -46,7 +47,8 @@ export async function POST(request: NextRequest) {
     }
 
     const order = edges[0].node;
-    await syncOneOrder(order);
+    const shopifyAdminClient = createShopifyAdminGraphqlClient(getShopifyAdminEnv());
+    await syncOneOrder(order, shopifyAdminClient);
 
     return NextResponse.json({ ok: true, orderName: order.name });
   } catch (err) {

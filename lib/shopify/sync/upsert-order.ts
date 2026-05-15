@@ -14,6 +14,8 @@ import {
   recomputePurchaseOrderStatusById,
   recomputePurchaseOrderStatusesForShopifyOrderId,
 } from '@/lib/order/purchase-order-status';
+import type { AdminApiClient } from '@shopify/admin-api-client';
+import { fetchFulfillmentOrderLocations } from '@/lib/shopify/fetchFulfillmentOrderLocations';
 
 function parseOrderNumber(name: string | null): number {
   if (!name) return 0;
@@ -304,10 +306,29 @@ export async function upsertShopifyOrder(
 
 /**
  * Full pipeline: upsert customer → upsert order + line items.
+ * When `shopifyAdminClient` is provided, also fetches FulfillmentOrder location data
+ * and writes shopifyLocationGid onto each line item.
  */
 export async function syncOneOrder(
   order: ShopifyOrderNode,
+  shopifyAdminClient?: AdminApiClient,
 ): Promise<{ id: string; shopifyGid: string }> {
   const customerId = await upsertShopifyCustomer(order);
-  return upsertShopifyOrder(order, customerId);
+  const result = await upsertShopifyOrder(order, customerId);
+
+  if (shopifyAdminClient) {
+    const locationMap = await fetchFulfillmentOrderLocations(shopifyAdminClient, order.id);
+    if (locationMap.size > 0) {
+      await Promise.all(
+        Array.from(locationMap.entries()).map(([shopifyGid, locationGid]) =>
+          prisma.shopifyOrderLineItem.updateMany({
+            where: { shopifyGid, orderId: result.id },
+            data: { shopifyLocationGid: locationGid },
+          }),
+        ),
+      );
+    }
+  }
+
+  return result;
 }

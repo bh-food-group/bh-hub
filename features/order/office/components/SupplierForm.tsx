@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -37,7 +37,18 @@ export type SupplierGroup = {
   _count: { suppliers: number };
 };
 
-export type VendorMappingRow = { id: string; vendorName: string };
+export type VendorMappingRow = {
+  id: string;
+  vendorName: string;
+  shopifyLocationGid?: string | null;
+  shopifyLocationName?: string | null;
+};
+
+type LocationVendorPairState = {
+  vendorName: string;
+  shopifyLocationGid: string;
+  shopifyLocationName: string;
+};
 
 export type SupplierRow = {
   id: string;
@@ -177,10 +188,32 @@ export function SupplierForm({
     ic.link.invoiceConfirmSenderEmail,
   );
 
+  // Null-location aliases (existing behavior)
   const [vendorAliases, setVendorAliases] = useState<string[]>(
-    editing?.vendorMappings.map((m) => m.vendorName) ?? [],
+    editing?.vendorMappings.filter((m) => !m.shopifyLocationGid).map((m) => m.vendorName) ?? [],
   );
   const [newAlias, setNewAlias] = useState('');
+
+  // Location-specific (vendor, location) pairs
+  const [locationVendorPairs, setLocationVendorPairs] = useState<LocationVendorPairState[]>(
+    editing?.vendorMappings
+      .filter((m) => !!m.shopifyLocationGid)
+      .map((m) => ({
+        vendorName: m.vendorName,
+        shopifyLocationGid: m.shopifyLocationGid!,
+        shopifyLocationName: m.shopifyLocationName ?? m.shopifyLocationGid!,
+      })) ?? [],
+  );
+  const [shopifyLocations, setShopifyLocations] = useState<{ id: string; name: string }[]>([]);
+  const [newPairVendor, setNewPairVendor] = useState('');
+  const [newPairLocationGid, setNewPairLocationGid] = useState('');
+
+  useEffect(() => {
+    fetch('/api/shopify/locations')
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setShopifyLocations(d.locations ?? []); })
+      .catch(() => {});
+  }, []);
 
   const deliveryForm = useSupplierDeliveryScheduleForm(editing?.deliverySchedule);
 
@@ -278,6 +311,7 @@ export function SupplierForm({
         orderChannelType,
         orderChannelPayload: buildPayload(),
         vendorAliases,
+        locationVendorPairs,
         deliverySchedule: schedulePayload,
       };
 
@@ -454,6 +488,100 @@ export function SupplierForm({
               size="sm"
               className="text-xs shrink-0"
               onClick={addAlias}
+            >
+              Add
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isEdit && (
+        <div className="grid gap-2">
+          <Label className="text-xs">Location-Vendor Pairs</Label>
+          <p className="text-[10px] text-muted-foreground -mt-1">
+            Link (Shopify vendor + location) pairs to this supplier for location-based PO grouping.
+          </p>
+          {locationVendorPairs.length > 0 && (
+            <div className="flex flex-col gap-1">
+              {locationVendorPairs.map((pair, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs"
+                >
+                  <span className="font-medium">{pair.vendorName}</span>
+                  <span className="text-muted-foreground">@</span>
+                  <span>{pair.shopifyLocationName}</span>
+                  <button
+                    type="button"
+                    className="ml-auto text-muted-foreground hover:text-foreground text-[10px] leading-none cursor-pointer"
+                    onClick={() =>
+                      setLocationVendorPairs((prev) => prev.filter((_, j) => j !== i))
+                    }
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-1.5">
+            <Select
+              value={newPairVendor}
+              onValueChange={setNewPairVendor}
+            >
+              <SelectTrigger className={cn(fieldCls, 'flex-1')}>
+                <SelectValue placeholder="Vendor..." />
+              </SelectTrigger>
+              <SelectContent>
+                {vendors.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {v}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={newPairLocationGid}
+              onValueChange={setNewPairLocationGid}
+            >
+              <SelectTrigger className={cn(fieldCls, 'flex-1')}>
+                <SelectValue placeholder="Location..." />
+              </SelectTrigger>
+              <SelectContent>
+                {shopifyLocations.map((loc) => (
+                  <SelectItem key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-xs shrink-0"
+              onClick={() => {
+                if (!newPairVendor || !newPairLocationGid) return;
+                const locName =
+                  shopifyLocations.find((l) => l.id === newPairLocationGid)?.name ??
+                  newPairLocationGid;
+                const alreadyExists = locationVendorPairs.some(
+                  (p) =>
+                    p.vendorName === newPairVendor &&
+                    p.shopifyLocationGid === newPairLocationGid,
+                );
+                if (alreadyExists) return;
+                setLocationVendorPairs((prev) => [
+                  ...prev,
+                  {
+                    vendorName: newPairVendor,
+                    shopifyLocationGid: newPairLocationGid,
+                    shopifyLocationName: locName,
+                  },
+                ]);
+                setNewPairVendor('');
+                setNewPairLocationGid('');
+              }}
             >
               Add
             </Button>

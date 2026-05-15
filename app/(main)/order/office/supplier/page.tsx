@@ -50,7 +50,7 @@ export default async function OfficeSuppliersPage() {
         deliverySchedule: true,
         createdAt: true,
         vendorMappings: {
-          select: { id: true, vendorName: true },
+          select: { id: true, vendorName: true, shopifyLocationGid: true, shopifyLocationName: true },
           orderBy: { createdAt: 'asc' },
         },
         _count: { select: { purchaseOrders: true } },

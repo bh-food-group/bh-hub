@@ -548,12 +548,38 @@ export function SuppliersClient({
                         )}
                       </td>
                       <td className="p-2 align-middle text-muted-foreground text-xs">
-                        <span>{s.shopifyVendorName ?? '—'}</span>
-                        {s.vendorMappings.length > 1 && (
-                          <span className="ml-1 text-[10px] text-muted-foreground/60">
-                            +{s.vendorMappings.length - 1} alias{s.vendorMappings.length - 1 !== 1 ? 'es' : ''}
-                          </span>
-                        )}
+                        {(() => {
+                          const locationPairs = s.vendorMappings.filter((m) => m.shopifyLocationGid);
+                          const nullAliases = s.vendorMappings.filter((m) => !m.shopifyLocationGid);
+                          if (locationPairs.length > 0) {
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                {locationPairs.slice(0, 3).map((m) => (
+                                  <span key={m.id} className="inline-flex items-center gap-0.5">
+                                    <span className="font-medium text-foreground">{m.vendorName}</span>
+                                    <span className="text-muted-foreground/60">@</span>
+                                    <span>{m.shopifyLocationName ?? m.shopifyLocationGid}</span>
+                                  </span>
+                                ))}
+                                {locationPairs.length > 3 && (
+                                  <span className="text-[10px] text-muted-foreground/60">
+                                    +{locationPairs.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          }
+                          return (
+                            <>
+                              <span>{s.shopifyVendorName ?? '—'}</span>
+                              {nullAliases.length > 1 && (
+                                <span className="ml-1 text-[10px] text-muted-foreground/60">
+                                  +{nullAliases.length - 1} alias{nullAliases.length - 1 !== 1 ? 'es' : ''}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="p-2 align-middle">
                         <Badge
