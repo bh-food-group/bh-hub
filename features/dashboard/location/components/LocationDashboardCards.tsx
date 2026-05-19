@@ -15,10 +15,8 @@ import MonthlyRevenueCard from '@/features/dashboard/revenue/components/card/Mon
 import WeeklyRevenueCard from '@/features/dashboard/revenue/components/card/WeeklyRevenueCard';
 import {
   getAnnualRevenuePeriodData,
-  getCloverWeeklyRevenueData,
   getRevenuePeriodData,
 } from '@/features/dashboard/revenue';
-import { mergeDailyRevenueTargetsIntoWeeklyData } from '@/features/dashboard/revenue/utils/merge-daily-revenue-targets';
 import {
   getRevenueTargetSnapshot,
   getRevenueMonthTargetRefMonths,
@@ -61,7 +59,6 @@ export default async function LocationDashboardCards({
     weekOffset: 0,
   });
   const annualRevenuePromise = getAnnualRevenuePeriodData(locationId, yearMonth, context);
-  const weeklyRevenuePromise = getCloverWeeklyRevenueData(locationId, yearMonth, initialWeekOffset);
 
   const [laborTargetRow, revenueSnapshot, savedRefMonths] = await Promise.all([
     getLaborTargetByLocationAndMonth(locationId, yearMonth),
@@ -69,21 +66,21 @@ export default async function LocationDashboardCards({
     getRevenueMonthTargetRefMonths(locationId, yearMonth),
   ]);
 
-  const [[budgetWithCos], monthlyRevenueBase, annualRevenueBase, weeklyRevenueRaw, laborData] =
+  const [[budgetWithCos], monthlyRevenueBase, annualRevenueBase, laborData, refCosRaw] =
     await Promise.all([
       currentCosPromise,
       monthlyRevenuePromise,
       annualRevenuePromise,
-      weeklyRevenuePromise,
       getLaborDashboardData(locationId, yearMonth, context, {
         referenceIncomeTotal: initialBudget.referenceIncomeTotal,
         laborTarget: laborTargetRow,
       }),
+      refCosPromise ?? Promise.resolve(null),
     ]);
 
   let budget = budgetWithCos;
-  if (refCosPromise) {
-    const [withRef] = await refCosPromise;
+  if (refCosRaw) {
+    const [withRef] = refCosRaw;
     budget = { ...budget, ...withRef };
   }
 
@@ -91,10 +88,6 @@ export default async function LocationDashboardCards({
     ...monthlyRevenueBase,
     monthlyRevenueTarget: revenueSnapshot?.monthlyTarget,
   };
-  const weeklyRevenue = mergeDailyRevenueTargetsIntoWeeklyData(
-    weeklyRevenueRaw,
-    revenueSnapshot?.dailyTargetsByDate,
-  );
 
   return (
     <div className="grid gap-4 max-lg:grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
@@ -119,7 +112,6 @@ export default async function LocationDashboardCards({
           key={yearMonth}
           locationId={locationId}
           yearMonth={yearMonth}
-          initialData={weeklyRevenue}
           initialWeekOffset={initialWeekOffset}
         />
       </div>

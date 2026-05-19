@@ -23,7 +23,7 @@ import type { RevenuePeriodData } from '../types';
 type WeeklyRevenueCardProps = {
   locationId: string;
   yearMonth: string;
-  initialData: RevenuePeriodData;
+  initialData?: RevenuePeriodData;
   initialWeekOffset: number;
   className?: string;
 };
@@ -35,13 +35,13 @@ export default function WeeklyRevenueCard({
   initialWeekOffset,
   className,
 }: WeeklyRevenueCardProps) {
-  const [data, setData] = useState<RevenuePeriodData>(initialData);
+  const [data, setData] = useState<RevenuePeriodData | null>(initialData ?? null);
 
   useEffect(() => {
-    if (data.cloverError) {
+    if (data?.cloverError) {
       console.error('[WeeklyRevenueCard] Clover error:', data.cloverError);
     }
-  }, [data.cloverError]);
+  }, [data?.cloverError]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(
@@ -72,6 +72,13 @@ export default function WeeklyRevenueCard({
     },
     [locationId, yearMonth],
   );
+
+  useEffect(() => {
+    if (!initialData) {
+      void load(initialWeekOffset);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onWeekChange = useCallback(
     (weekOffset: number) => {
@@ -112,6 +119,21 @@ export default function WeeklyRevenueCard({
       </CardHeader>
 
       <CardContent className="space-y-4 pt-0">
+        {data === null ? (
+          <div className="animate-pulse space-y-3">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="h-12 rounded-lg bg-muted" />
+              <div className="h-12 rounded-lg bg-muted" />
+              <div className="h-12 rounded-lg bg-muted" />
+            </div>
+            <div className="h-44 rounded-lg bg-muted" />
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-8 rounded bg-muted" />
+              ))}
+            </div>
+          </div>
+        ) : (
         <div className={cn('relative', loading && 'pointer-events-none')}>
           <div
             className={cn(
@@ -258,6 +280,7 @@ export default function WeeklyRevenueCard({
             )}
           </div>
         </div>
+        )}
       </CardContent>
     </Card>
   );
