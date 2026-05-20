@@ -52,7 +52,7 @@ export async function syncLocationVendorPairs(
   desiredPairs: VendorMappingPair[],
 ): Promise<void> {
   const current = await prisma.shopifyVendorMapping.findMany({
-    where: { supplierId },
+    where: { supplierId, shopifyLocationGid: { not: null } },
     select: { id: true, vendorName: true, shopifyLocationGid: true },
   });
 

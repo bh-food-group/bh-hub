@@ -122,12 +122,18 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
     // Sync null-location vendor alias mappings when provided (legacy aliases)
     if (data.vendorAliases !== undefined) {
       const desiredAliases = new Set(data.vendorAliases ?? []);
-      // Delete null-location mappings no longer in the desired set
+      // shopifyVendorName has its own mapping — don't let alias cleanup delete it
+      const activeVendorName = supplier.shopifyVendorName?.trim() || null;
       await prisma.shopifyVendorMapping.deleteMany({
         where: {
           supplierId: id,
           shopifyLocationGid: null,
-          vendorName: { notIn: [...desiredAliases] },
+          vendorName: {
+            notIn: [
+              ...desiredAliases,
+              ...(activeVendorName ? [activeVendorName] : []),
+            ],
+          },
         },
       });
       for (const alias of desiredAliases) {
