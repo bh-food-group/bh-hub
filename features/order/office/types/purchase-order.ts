@@ -112,6 +112,9 @@ export type PoPanelMeta = {
   /** ISO — user chose not to send hub email; reminders suppressed until cleared or send logged. */
   emailDeliveryWaivedAt: string | null;
   emailDeliveries: PoEmailDeliveryItem[];
+  /** PO-level discount amount; null when not set. */
+  discount: string | null;
+  discountReason: string | null;
 };
 
 export type OfficePurchaseOrderBlock = {

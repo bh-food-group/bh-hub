@@ -119,14 +119,11 @@ export async function executePurchaseOrderOutboundEmailSend(
     const title = li.productTitle ?? '(untitled)';
     const description = mergeProductAndVariantTitle(title, li.variantTitle);
     const supplierRef = (li.supplierRef?.trim() || li.sku?.trim() || '—').slice(0, 40);
-    const rawCost = soli?.unitCost ?? null;
-    const parsedCost = rawCost != null ? parseFloat(String(rawCost)) : NaN;
     return {
       shopifyOrderNumber: orderName,
       description,
       supplierRef,
       quantity: li.quantity,
-      itemCost: Number.isFinite(parsedCost) ? parsedCost : null,
       note: li.note?.trim() ?? '',
     };
   });
@@ -155,6 +152,8 @@ export async function executePurchaseOrderOutboundEmailSend(
     shippingAddressLines: toAddrLines(po.shippingAddress),
     supplierCompany: supplier.company,
     lineItems,
+    discount: null,
+    discountReason: null,
   };
 
   const outbound = await getPoEmailOutboundSettings(prisma);

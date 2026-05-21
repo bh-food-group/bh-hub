@@ -342,6 +342,8 @@ export function mapPrismaPoToBlock(
         sentAt: d.sentAt.toISOString(),
       }),
     ),
+    discount: decimalToString(po.discount),
+    discountReason: po.discountReason?.trim() || null,
   };
 
   return {
@@ -460,6 +462,8 @@ export function mapPrismaPoToSlimBlock(
         sentAt: d.sentAt.toISOString(),
       }),
     ),
+    discount: decimalToString(po.discount),
+    discountReason: po.discountReason?.trim() || null,
   };
 
   return {

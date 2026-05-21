@@ -49,12 +49,9 @@ const W_ITEM  = X_REF - X_ITEM - 2;  // item description wrap width
 
 /** Rightmost: line note (PO-specific; also shown in hub UI). */
 const W_NOTE_COL = 28;
-/** Unit cost column sits between Qty and Note. */
-const W_COST_COL = 22;
 const X_NOTE_R = X_RIGHT - CELL_PAD_H;
-const X_COST_R = X_NOTE_R - W_NOTE_COL - 2;
-// Qty sits just left of the cost column
-const X_QTY_R = X_COST_R - W_COST_COL - 3;
+// Qty sits just left of the note column
+const X_QTY_R = X_NOTE_R - W_NOTE_COL - 2;
 
 // Address section: Ship to + Bill to stacked on left; signature box on right
 const W_ADDR_COL = 104;                               // text wrap width for address columns
@@ -170,10 +167,6 @@ function wrapNoteLinesForPdf(doc: jsPDF, note: string, maxW: number): string[] {
   return out.length > 0 ? out : ['—'];
 }
 
-function fmtMoney(amount: number): string {
-  return `$${amount.toFixed(2)}`;
-}
-
 function rule(doc: jsPDF, y: number, rgb: [number, number, number] = [200, 200, 200]): void {
   doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
   doc.setLineWidth(0.1);
@@ -261,11 +254,12 @@ export type PoPdfInput = {
     description: string;
     supplierRef: string;
     quantity: number;
-    /** Unit cost (parsed from itemCost string). Null when not set. */
-    itemCost: number | null;
     /** Right column on the PDF line table. */
     note: string;
   }[];
+  /** PO-level discount amount; null when not set. */
+  discount: number | null;
+  discountReason: string | null;
 };
 
 // ─── PDF builder ──────────────────────────────────────────────────────────────
@@ -408,9 +402,8 @@ function buildDocCore(input: PoPdfInput, pageH: number, fonts?: KoreanFonts): { 
   doc.setFontSize(8.5);
   doc.text('Item',          X_ITEM,  hdrY);
   doc.text('Supplier Ref.', X_REF,   hdrY);
-  doc.text('Qty',           X_QTY_R,  hdrY, { align: 'right' });
-  doc.text('Cost',          X_COST_R, hdrY, { align: 'right' });
-  doc.text('Note',          X_NOTE_R, hdrY, { align: 'right' });
+  doc.text('Qty',           X_QTY_R,   hdrY, { align: 'right' });
+  doc.text('Note',          X_NOTE_R,  hdrY, { align: 'right' });
   y += hdrH;
 
   // ── Table rows ────────────────────────────────────────────────────────────
@@ -439,36 +432,12 @@ function buildDocCore(input: PoPdfInput, pageH: number, fonts?: KoreanFonts): { 
 
     doc.text(row.supplierRef || '—', X_REF, rowY);
     doc.text(String(row.quantity), X_QTY_R, rowY, { align: 'right' });
-    doc.text(row.itemCost != null ? fmtMoney(row.itemCost) : '—', X_COST_R, rowY, { align: 'right' });
     for (let i = 0; i < noteLines.length; i++) {
       doc.text(noteLines[i] ?? '', X_NOTE_R, rowY + i * LH, { align: 'right' });
     }
 
     y += rowH;
     rule(doc, y);
-  }
-
-  // ── Total cost row ────────────────────────────────────────────────────────
-  const hasCosts = input.lineItems.some((r) => r.itemCost != null);
-  if (hasCosts) {
-    const totalCost = input.lineItems.reduce((sum, r) => {
-      return sum + (r.itemCost ?? 0) * r.quantity;
-    }, 0);
-    const totalRowH = ROW_TOP + FONT_H + ROW_BOT;
-    y = ensurePage(doc, y, totalRowH + 2);
-    doc.setFillColor(240, 240, 240);
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.1);
-    doc.rect(MARGIN, y, PAGE_W - 2 * MARGIN, totalRowH, 'FD');
-    const totalY = y + ROW_TOP;
-    doc.setFont(ff, 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(80, 80, 80);
-    doc.text('TOTAL COST', X_ITEM, totalY);
-    doc.setTextColor(0, 0, 0);
-    doc.text(fmtMoney(totalCost), X_COST_R, totalY, { align: 'right' });
-    doc.setFont(ff, 'normal');
-    y += totalRowH;
   }
 
   const finalY = y;
@@ -531,17 +500,16 @@ export function buildPoPdfInput(args: {
     ),
   ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-  const rows = block.lineItems.map((li) => {
-    const parsedCost = li.itemCost != null ? parseFloat(li.itemCost) : NaN;
-    return {
-      shopifyOrderNumber: li.shopifyOrderNumber?.trim() || '—',
-      description: formatProductLabel(li),
-      supplierRef: (li.supplierRef?.trim() || li.sku?.trim() || '—').slice(0, 40),
-      quantity: li.quantity,
-      itemCost: Number.isFinite(parsedCost) ? parsedCost : null,
-      note: li.note?.trim() ?? '',
-    };
-  });
+  const rows = block.lineItems.map((li) => ({
+    shopifyOrderNumber: li.shopifyOrderNumber?.trim() || '—',
+    description: formatProductLabel(li),
+    supplierRef: (li.supplierRef?.trim() || li.sku?.trim() || '—').slice(0, 40),
+    quantity: li.quantity,
+    note: li.note?.trim() ?? '',
+  }));
+
+  const parsedDiscount = meta.discount != null ? parseFloat(meta.discount) : NaN;
+  const discount = Number.isFinite(parsedDiscount) && parsedDiscount > 0 ? parsedDiscount : null;
 
   return {
     poNumber: block.poNumber,
@@ -556,6 +524,8 @@ export function buildPoPdfInput(args: {
     shippingAddressLines: addrLines(shipAddr),
     supplierCompany,
     lineItems: rows,
+    discount,
+    discountReason: meta.discountReason ?? null,
   };
 }
 
