@@ -3,6 +3,10 @@
     {
       "path": "/api/order/sync/shopify",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/warm-dashboard",
+      "schedule": "0 14 * * *"
     }
   ]
 }
