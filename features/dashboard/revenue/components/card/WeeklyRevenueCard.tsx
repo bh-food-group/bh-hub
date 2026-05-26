@@ -12,7 +12,7 @@ import { cn, formatCurrency } from '@/lib/utils';
 import { format } from 'date-fns';
 import { parseLocalDate } from '@/features/dashboard/revenue/utils/week-range';
 import { Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import RevenueDailyBarChart from '../chart/RevenueDailyBarChart';
 import HourlySalesHeatmap from '../chart/HourlySalesHeatmap';
 import MenuPerformanceSection from '../chart/MenuPerformanceSection';
@@ -43,31 +43,43 @@ export default function WeeklyRevenueCard({
     }
   }, [data?.cloverError]);
   const [loading, setLoading] = useState(false);
+  const [loadingMenuStats, setLoadingMenuStats] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
     async (weekOffset: number) => {
+      // Cancel any in-flight request so a slow initial load can't overwrite a later navigation.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const { signal } = controller;
+
       setLoading(true);
+      setLoadingMenuStats(false);
       try {
-        const q = new URLSearchParams({
-          locationId,
-          yearMonth,
-          weekOffset: String(weekOffset),
-        });
-        const res = await fetch(
-          `/api/dashboard/revenue/clover?${q.toString()}`,
-          {
-            cache: 'no-store',
-          },
-        );
-        const j = (await res.json()) as {
-          ok?: boolean;
-          data?: RevenuePeriodData;
-        };
-        if (j.ok && j.data) {
-          setData(j.data);
-        }
-      } finally {
+        const base = new URLSearchParams({ locationId, yearMonth, weekOffset: String(weekOffset) });
+
+        // Phase 1: current payments only (~1-2s). For cached past weeks, returns full data immediately.
+        const res1 = await fetch(`/api/dashboard/revenue/clover?${base}&phase=1`, { cache: 'no-store', signal });
+        const j1 = (await res1.json()) as { ok?: boolean; partial?: boolean; data?: RevenuePeriodData };
+        if (!j1.ok || !j1.data) return;
+        setData(j1.data);
         setLoading(false);
+
+        // Phase 2: prevPayments + orderItems in parallel (~8s). Only needed when phase 1 was partial.
+        if (j1.partial) {
+          setLoadingMenuStats(true);
+          const res2 = await fetch(`/api/dashboard/revenue/clover?${base}&phase=2`, { cache: 'no-store', signal });
+          const j2 = (await res2.json()) as { ok?: boolean; data?: RevenuePeriodData };
+          if (j2.ok && j2.data) setData(j2.data);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      } finally {
+        if (!signal.aborted) {
+          setLoading(false);
+          setLoadingMenuStats(false);
+        }
       }
     },
     [locationId, yearMonth],
@@ -254,13 +266,20 @@ export default function WeeklyRevenueCard({
                       </div>
 
                       {/* Right: menu performance */}
-                      {data.topMenuItems && data.topMenuItems.length > 0 && (
+                      {loadingMenuStats ? (
+                        <div className="animate-pulse space-y-3">
+                          <div className="h-5 w-36 rounded bg-muted" />
+                          {Array.from({ length: 6 }).map((_, i) => (
+                            <div key={i} className="h-8 rounded bg-muted" />
+                          ))}
+                        </div>
+                      ) : data.topMenuItems && data.topMenuItems.length > 0 ? (
                         <MenuPerformanceSection
                           topMenuItems={data.topMenuItems}
                           bottomMenuItems={data.bottomMenuItems ?? []}
                           seasonalMenuItems={data.seasonalMenuItems}
                         />
-                      )}
+                      ) : null}
                     </div>
                   )}
 

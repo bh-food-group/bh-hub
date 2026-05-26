@@ -4,41 +4,11 @@
 // Use getIncomeFromPnlReport / getIncomeWithCategoriesFromPnlReport / getCosFromPnlReport / getBudgetDataFromPnlReport in lib for income/cos.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { unstable_cache } from 'next/cache';
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { toApiErrorResponse } from '@/lib/core/errors';
 import type { PnlReportData } from '@/lib/quickbooks';
-import { withValidTokenForLocation } from '@/lib/quickbooks';
-import { fetchProfitAndLossReportFromQb } from '@/lib/quickbooks';
 import { prisma } from '@/lib/core/prisma';
-
-/**
- * Cache QB P&L API responses by (locationId, startDate, endDate, accountingMethod).
- * TTL: 5 min for current-month data; callers can invalidate via revalidateTag('qb-pnl').
- * Errors are not cached — a failing QB call will always be retried.
- */
-const fetchCachedQbPnl = unstable_cache(
-  async (
-    locationId: string,
-    startDate: string,
-    endDate: string,
-    accountingMethod: 'Accrual' | 'Cash',
-  ) =>
-    withValidTokenForLocation(
-      locationId,
-      (accessToken, realmId, classId) =>
-        fetchProfitAndLossReportFromQb(
-          realmId,
-          startDate,
-          endDate,
-          accountingMethod,
-          accessToken,
-          classId,
-        ),
-    ),
-  ['qb-pnl'],
-  { revalidate: 300, tags: ['qb-pnl'] },
-);
+import { fetchQbPnlCached } from '@/lib/quickbooks/pnl-cache';
 
 function parseDate(s: string): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -109,7 +79,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const report = await fetchCachedQbPnl(locationId, start, end, accountingMethod);
+    const report = await fetchQbPnlCached(locationId, start, end, accountingMethod);
 
     const body = {
       ok: true,

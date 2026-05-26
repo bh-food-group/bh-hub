@@ -1,6 +1,7 @@
 import {
   fetchCloverCategories,
   fetchCloverItemIdsByCategory,
+  findMenuCategories,
   findSeasonalCategory,
 } from '@/lib/clover/fetch-categories';
 import { fetchCloverOrderItemsInRange } from '@/lib/clover/fetch-orders';
@@ -67,11 +68,18 @@ function buildMenuStats(
   lineItems: Awaited<ReturnType<typeof fetchCloverOrderItemsInRange>>,
   weekTotalRevenue: number,
   seasonalItemIds: Set<string>,
+  menuItemIds: Set<string>,
 ): {
   topMenuItems: CloverMenuItemStat[];
   bottomMenuItems: CloverMenuItemStat[];
   seasonalMenuItems: CloverMenuItemStat[];
 } {
+  // When we have menu category data, restrict to DRINK/FOOD/KIDS/BAKERY items only.
+  const eligibleItems =
+    menuItemIds.size > 0
+      ? lineItems.filter((li) => li.itemId !== null && menuItemIds.has(li.itemId))
+      : lineItems;
+
   const statsMap = new Map<
     string,
     {
@@ -82,7 +90,7 @@ function buildMenuStats(
     }
   >();
 
-  for (const li of lineItems) {
+  for (const li of eligibleItems) {
     const key = li.itemId ?? li.name;
     const existing = statsMap.get(key) ?? {
       itemId: li.itemId,
@@ -176,10 +184,16 @@ function buildDayHourlySales(
  * Weekly Clover **net sales** from Payments + Orders APIs (not QuickBooks P&L).
  * Per payment: `amount − taxAmount − tipAmount` (Clover fields, cents), same as export script.
  */
+/**
+ * @param includeOrderItems When false (phase 1), skips the expensive /orders expand call and
+ * runs payments + prevPayments in parallel instead. Returned data omits menu stats fields.
+ * When true (phase 2 / cached), fetches full data including menu performance.
+ */
 export async function getCloverWeeklyRevenueData(
   locationId: string,
   yearMonth: string,
   weekOffset: number,
+  { includeOrderItems = true }: { includeOrderItems?: boolean } = {},
 ): Promise<RevenuePeriodData> {
   const { weekStart, weekEnd } = weekRangeForMonth(yearMonth, weekOffset);
 
@@ -215,51 +229,56 @@ export async function getCloverWeeklyRevenueData(
   const prevStartMs = prevRange.weekStart.getTime();
   const prevEndMs = prevRange.weekEnd.getTime() + 24 * 3600_000;
 
-  // Sequential Clover calls — parallel bursts were triggering 429 Too Many Requests.
   let payments: Awaited<ReturnType<typeof fetchCloverPaymentsInRange>>;
   let prevPayments: Awaited<ReturnType<typeof fetchCloverPaymentsInRange>>;
-  let orderItems: Awaited<ReturnType<typeof fetchCloverOrderItemsInRange>>;
-  let categories: Awaited<ReturnType<typeof fetchCloverCategories>>;
+  let orderItems: Awaited<ReturnType<typeof fetchCloverOrderItemsInRange>> = [];
+  let categories: Awaited<ReturnType<typeof fetchCloverCategories>> = [];
 
   try {
-    payments = await fetchCloverPaymentsInRange(
-      merchantId,
-      token,
-      startMs,
-      endMs,
-    );
-    prevPayments = await fetchCloverPaymentsInRange(
-      merchantId,
-      token,
-      prevStartMs,
-      prevEndMs,
-    );
-    orderItems = await fetchCloverOrderItemsInRange(
-      merchantId,
-      token,
-      startMs,
-      endMs,
-    );
-    categories = await fetchCloverCategories(merchantId, token);
+    if (includeOrderItems) {
+      // Phase 2: run all three Clover calls in parallel.
+      // /payments (current) and /orders are different endpoints — no rate-limit conflict.
+      // /payments (prev) is the same endpoint as current, but phase 2 starts only after
+      // phase 1's single /payments call has already completed, so total concurrent
+      // same-endpoint calls never exceeds 2.
+      const categoriesPromise = fetchCloverCategories(merchantId, token);
+      [payments, prevPayments, orderItems] = await Promise.all([
+        fetchCloverPaymentsInRange(merchantId, token, startMs, endMs),
+        fetchCloverPaymentsInRange(merchantId, token, prevStartMs, prevEndMs),
+        fetchCloverOrderItemsInRange(merchantId, token, startMs, endMs),
+      ]);
+      categories = await categoriesPromise;
+    } else {
+      // Phase 1 fast path: only current-week payments — one single Clover call (~1-2s).
+      // prevPayments and orderItems are deferred to phase 2.
+      payments = await fetchCloverPaymentsInRange(merchantId, token, startMs, endMs);
+      prevPayments = [];
+    }
   } catch (err) {
     return emptyWeekBars(weekStart, weekEnd, {
       cloverError: err instanceof Error ? err.message : 'Clover API error',
     });
   }
 
-  // Seasonal item IDs (if a matching category exists)
+  // Fetch item IDs for seasonal + menu categories (DRINK/FOOD/KIDS/BAKERY) in parallel.
   let seasonalItemIds = new Set<string>();
-  const seasonalCategory = findSeasonalCategory(categories);
-  if (seasonalCategory) {
-    try {
-      const ids = await fetchCloverItemIdsByCategory(
-        merchantId,
-        token,
-        seasonalCategory.id,
-      );
-      seasonalItemIds = new Set(ids);
-    } catch {
-      // Non-fatal: seasonal section just won't appear
+  let menuItemIds = new Set<string>();
+  if (includeOrderItems) {
+    const seasonalCategory = findSeasonalCategory(categories);
+    const menuCategories = findMenuCategories(categories);
+
+    const [seasonalIds, ...menuIdArrays] = await Promise.all([
+      seasonalCategory
+        ? fetchCloverItemIdsByCategory(merchantId, token, seasonalCategory.id).catch(() => [] as string[])
+        : Promise.resolve([] as string[]),
+      ...menuCategories.map((cat) =>
+        fetchCloverItemIdsByCategory(merchantId, token, cat.id).catch(() => [] as string[]),
+      ),
+    ]);
+
+    seasonalItemIds = new Set(seasonalIds);
+    for (const ids of menuIdArrays) {
+      for (const id of ids) menuItemIds.add(id);
     }
   }
 
@@ -336,19 +355,9 @@ export async function getCloverWeeklyRevenueData(
   const avgTicketSize =
     transactionCount > 0 ? weekTotalRevenue / transactionCount : 0;
 
-  const orderItemsInWowWindow = orderItems.filter((li) =>
-    wowCompareDayKeys.has(zonedCalendarDay(li.orderedAtMs, tz)),
-  );
-
-  const { topMenuItems, bottomMenuItems, seasonalMenuItems } = buildMenuStats(
-    orderItemsInWowWindow,
-    weekTotalRevenue,
-    seasonalItemIds,
-  );
-
   const dayHourlySales = buildDayHourlySales(payments, weekStart, weekEnd, tz);
 
-  return {
+  const base: RevenuePeriodData = {
     totalRevenue: weekTotalRevenue,
     categories: [
       {
@@ -362,12 +371,27 @@ export async function getCloverWeeklyRevenueData(
     dailyBarSegmentLabels: [EMPTY_SEGMENT_LABEL],
     transactionCount,
     avgTicketSize,
-    prevWeekRevenue,
-    wowCompareWeekdaySpanLabel,
+    // prevWeekRevenue omitted from phase 1 — WoW badge stays hidden until phase 2.
+    ...(includeOrderItems ? { prevWeekRevenue, wowCompareWeekdaySpanLabel } : {}),
+    dayHourlySales,
+  };
+
+  if (!includeOrderItems) return base;
+
+  const orderItemsInWowWindow = orderItems.filter((li) =>
+    wowCompareDayKeys.has(zonedCalendarDay(li.orderedAtMs, tz)),
+  );
+  const { topMenuItems, bottomMenuItems, seasonalMenuItems } = buildMenuStats(
+    orderItemsInWowWindow,
+    weekTotalRevenue,
+    seasonalItemIds,
+    menuItemIds,
+  );
+
+  return {
+    ...base,
     topMenuItems,
     bottomMenuItems,
-    seasonalMenuItems:
-      seasonalMenuItems.length > 0 ? seasonalMenuItems : undefined,
-    dayHourlySales,
+    seasonalMenuItems: seasonalMenuItems.length > 0 ? seasonalMenuItems : undefined,
   };
 }

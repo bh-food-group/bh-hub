@@ -1,3 +1,5 @@
+import { unstable_cache } from 'next/cache';
+import { cache } from 'react';
 import { prisma } from '@/lib/core/prisma';
 import { revenueBucketKeyForIsoDate } from './revenue-target-bucket-key';
 import type { RevenueTargetSharesPayload } from './revenue-target-types';
@@ -200,22 +202,16 @@ export async function resolveRevenueMonthTargetRow(
   locationId: string,
   appliesYearMonth: string,
 ) {
-  const exact = await prisma.revenueMonthTarget.findUnique({
-    where: {
-      locationId_appliesYearMonth: { locationId, appliesYearMonth },
-    },
-  });
-  if (exact?.sharesJson?.trim()) return exact;
-
-  const prev = await prisma.revenueMonthTarget.findFirst({
+  // One query covers both exact and prev cases (desc order returns exact first).
+  const lteRow = await prisma.revenueMonthTarget.findFirst({
     where: { locationId, appliesYearMonth: { lte: appliesYearMonth } },
     orderBy: { appliesYearMonth: 'desc' },
   });
-  if (prev?.sharesJson?.trim()) return prev;
+  if (lteRow?.sharesJson?.trim()) return lteRow;
 
-  const yPrefix = appliesYearMonth.slice(0, 4);
+  // Fallback: any row in the same year (may have no sharesJson, caller handles it).
   return prisma.revenueMonthTarget.findFirst({
-    where: { locationId, appliesYearMonth: { startsWith: yPrefix } },
+    where: { locationId, appliesYearMonth: { startsWith: appliesYearMonth.slice(0, 4) } },
     orderBy: { appliesYearMonth: 'asc' },
   });
 }
@@ -227,23 +223,25 @@ export async function resolveRevenueMonthTargetRow(
  * Old payloads (no `bucketDayCounts`): legacy **share** mix (bucket $ / ref total $ per day slot).
  * Includes adjacent years so Sun–Sat weeks crossing Jan 1 still resolve.
  */
-export async function getRevenueTargetSnapshot(
+async function _getRevenueTargetSnapshotUncached(
   locationId: string,
   yearMonth: string,
 ): Promise<RevenueTargetSnapshot | null> {
   const y = Number.parseInt(yearMonth.slice(0, 4), 10);
   if (!Number.isFinite(y)) return null;
 
-  const annualRow = await prisma.revenueAnnualGoal.findUnique({
-    where: {
-      locationId_calendarYear: { locationId, calendarYear: y },
-    },
-  });
+  // Annual goal + month target in parallel (was sequential: +1 round-trip saved).
+  const [annualRow, monthRow] = await Promise.all([
+    prisma.revenueAnnualGoal.findUnique({
+      where: { locationId_calendarYear: { locationId, calendarYear: y } },
+    }),
+    resolveRevenueMonthTargetRow(locationId, yearMonth),
+  ]);
+
   const annual =
     annualRow?.goalAmount != null ? Number(annualRow.goalAmount) : NaN;
   if (!Number.isFinite(annual) || annual <= 0) return null;
 
-  const monthRow = await resolveRevenueMonthTargetRow(locationId, yearMonth);
   const shares = parseSharesJson(monthRow?.sharesJson ?? null);
   if (!shares || shares.totalCents <= 0) return null;
 
@@ -255,25 +253,28 @@ export async function getRevenueTargetSnapshot(
 
   const monthStart = parseISO(`${yearMonth}-01`);
   const monthEnd = endOfMonth(monthStart);
-  const monthDates = eachDayOfInterval({
-    start: monthStart,
-    end: monthEnd,
-  }).map((d) => format(d, 'yyyy-MM-dd'));
+  const monthDates = eachDayOfInterval({ start: monthStart, end: monthEnd }).map(
+    (d) => format(d, 'yyyy-MM-dd'),
+  );
 
   let monthlyTarget = 0;
   for (const iso of monthDates) {
     monthlyTarget += dailyTargetsByDate[iso] ?? 0;
   }
 
-  return {
-    annualGoal: annual,
-    monthlyTarget,
-    dailyTargetsByDate,
-  };
+  return { annualGoal: annual, monthlyTarget, dailyTargetsByDate };
 }
 
-/** Returns the saved `referencePeriodMonths` for the exact `appliesYearMonth` row, or null if no row. */
-export async function getRevenueMonthTargetRefMonths(
+const _getRevenueTargetSnapshotPersisted = unstable_cache(
+  _getRevenueTargetSnapshotUncached,
+  ['revenue-target-snapshot'],
+  { revalidate: 300 },
+);
+
+/** Revenue target snapshot with 5-min persistent cache + per-request dedup. */
+export const getRevenueTargetSnapshot = cache(_getRevenueTargetSnapshotPersisted);
+
+async function _getRevenueMonthTargetRefMonthsUncached(
   locationId: string,
   appliesYearMonth: string,
 ): Promise<number | null> {
@@ -283,3 +284,14 @@ export async function getRevenueMonthTargetRefMonths(
   });
   return row?.referencePeriodMonths ?? null;
 }
+
+const _getRevenueMonthTargetRefMonthsPersisted = unstable_cache(
+  _getRevenueMonthTargetRefMonthsUncached,
+  ['revenue-month-target-ref-months'],
+  { revalidate: 300 },
+);
+
+/** Returns the saved referencePeriodMonths with 5-min persistent cache + per-request dedup. */
+export const getRevenueMonthTargetRefMonths = cache(
+  _getRevenueMonthTargetRefMonthsPersisted,
+);

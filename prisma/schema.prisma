@@ -79,6 +79,7 @@ model Location {
   laborTargets        LaborTarget[]
   revenueAnnualGoals  RevenueAnnualGoal[]
   revenueMonthTargets RevenueMonthTarget[]
+  cloverWeeklyCaches  CloverWeeklyCache[]
   realm               Realm                    @relation(fields: [realmId], references: [id])
   users               User[]
   /// Optional default ship-to preset shared with other locations (many `Location`s may point to the same preset).
@@ -249,6 +250,21 @@ model RevenueMonthTarget {
 
   @@unique([locationId, appliesYearMonth])
   @@map("revenue_month_targets")
+  @@schema("dashboard")
+}
+
+/// Clover weekly revenue response cache. Past weeks (weekEndDate < today) are immutable; cached indefinitely.
+model CloverWeeklyCache {
+  id            String   @id @default(cuid())
+  locationId    String   @map("location_id")
+  weekStartDate String   @map("week_start_date")
+  weekEndDate   String   @map("week_end_date")
+  dataJson      String   @map("data_json") @db.Text
+  cachedAt      DateTime @map("cached_at")
+  location      Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, weekStartDate])
+  @@map("clover_weekly_cache")
   @@schema("dashboard")
 }
 

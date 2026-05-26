@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-function RevenueCardSkeleton() {
+export function RevenueCardSkeleton() {
   return (
     <Card className="min-w-0 gap-2">
       <CardHeader className="pb-1">
@@ -37,7 +37,7 @@ function WeeklyCardSkeleton() {
   );
 }
 
-function BudgetSkeleton() {
+export function BudgetSkeleton() {
   return (
     <Card className="min-w-0 overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -61,7 +61,7 @@ function BudgetSkeleton() {
   );
 }
 
-function LaborSkeleton() {
+export function LaborSkeleton() {
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">

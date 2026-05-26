@@ -1,13 +1,29 @@
 // GET /api/dashboard/labor/prev-month-summary?locationId=&yearMonth=YYYY-MM
 // Returns previous month's QB labor breakdown for LaborTimeNeeded calculation.
 
-import { type QuickBooksApiContext } from '@/features/dashboard/budget';
+import { unstable_cache } from 'next/cache';
+import { cache } from 'react';
 import { getLaborDashboardData } from '@/features/dashboard/labor';
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { toApiErrorResponse } from '@/lib/core/errors';
 import { isValidYearMonth } from '@/lib/utils';
 import { format, parseISO, subMonths } from 'date-fns';
 import { NextRequest, NextResponse } from 'next/server';
+
+// Previous month QB labor is immutable — cache for 24 hours.
+const _getPrevMonthLaborUncached = (locationId: string, prevYearMonth: string) =>
+  getLaborDashboardData(locationId, prevYearMonth, { baseUrl: '', cookie: null }, {
+    referenceIncomeTotal: undefined,
+    laborTarget: null,
+  });
+
+const _getPrevMonthLaborPersisted = unstable_cache(
+  _getPrevMonthLaborUncached,
+  ['prev-month-labor'],
+  { revalidate: 86400 },
+);
+
+const getPrevMonthLabor = cache(_getPrevMonthLaborPersisted);
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,16 +51,7 @@ export async function GET(request: NextRequest) {
 
     const prevYearMonth = format(subMonths(parseISO(`${yearMonth}-01`), 1), 'yyyy-MM');
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    const context: QuickBooksApiContext = {
-      baseUrl,
-      cookie: request.headers.get('cookie'),
-    };
-
-    const labor = await getLaborDashboardData(locationId, prevYearMonth, context, {
-      referenceIncomeTotal: undefined,
-      laborTarget: null,
-    });
+    const labor = await getPrevMonthLabor(locationId, prevYearMonth);
 
     const managementFeeMonthly =
       labor.categories.find((c) => c.id === 'management-fee')?.amount ?? 0;

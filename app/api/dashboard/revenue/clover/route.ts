@@ -1,4 +1,10 @@
-// GET /api/dashboard/revenue/clover?locationId=&yearMonth=YYYY-MM&weekOffset=0
+// GET /api/dashboard/revenue/clover?locationId=&yearMonth=YYYY-MM&weekOffset=0&phase=1|2
+//
+// phase=1 (fast): payments + prevPayments only (~3s). Returns partial:true so the client
+//   knows to follow up with phase=2 for menu stats.
+// phase=2 or omitted (full): includes order items for menu performance (~11s). Caches past
+//   weeks so repeat visits are instant.
+// Past weeks with a DB cache entry always return full data on phase=1 (partial:false).
 
 import { mergeDailyRevenueTargetsIntoWeeklyData } from '@/features/dashboard/revenue/utils/merge-daily-revenue-targets';
 import { getCloverWeeklyRevenueData } from '@/features/dashboard/revenue/utils/get-clover-weekly-revenue';
@@ -7,10 +13,13 @@ import {
   getWeekOffsetsIntersectingMonth,
   isWeekStartOnOrBeforeToday,
   weekRangeForMonth,
+  zonedTodayIsoForClover,
 } from '@/features/dashboard/revenue/utils/week-range';
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { toApiErrorResponse } from '@/lib/core/errors';
+import { prisma } from '@/lib/core';
 import { getCurrentYearMonth, isValidYearMonth } from '@/lib/utils';
+import type { RevenuePeriodData } from '@/features/dashboard/revenue/components/types';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
@@ -27,6 +36,7 @@ export async function GET(request: NextRequest) {
     const locationId = searchParams.get('locationId');
     const yearMonth = searchParams.get('yearMonth') || getCurrentYearMonth();
     const weekOffsetRaw = searchParams.get('weekOffset');
+    const phase = searchParams.get('phase') ?? '2';
 
     if (!locationId) {
       return NextResponse.json(
@@ -79,25 +89,71 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const snapshot = await getRevenueTargetSnapshot(locationId, yearMonth);
-    const raw = await getCloverWeeklyRevenueData(
-      locationId,
-      yearMonth,
-      weekOffset,
-    );
+    const range = weekRangeForMonth(yearMonth, weekOffset);
+    const { startDate, endDate } = range;
+
+    // Past weeks are immutable — always serve from DB cache when available (full data).
+    const todayIso = zonedTodayIsoForClover();
+    const isPastWeek = endDate < todayIso;
+
+    if (isPastWeek) {
+      const cached = await prisma.cloverWeeklyCache.findUnique({
+        where: { locationId_weekStartDate: { locationId, weekStartDate: startDate } },
+        select: { dataJson: true },
+      });
+      if (cached) {
+        return NextResponse.json({
+          ok: true,
+          partial: false,
+          yearMonth,
+          weekOffset,
+          startDate,
+          endDate,
+          data: JSON.parse(cached.dataJson) as RevenuePeriodData,
+        });
+      }
+    }
+
+    // phase=1: fast path — payments + prevPayments only, no order items.
+    const isPhase1 = phase === '1';
+
+    const [snapshot, raw] = await Promise.all([
+      getRevenueTargetSnapshot(locationId, yearMonth),
+      getCloverWeeklyRevenueData(locationId, yearMonth, weekOffset, {
+        includeOrderItems: !isPhase1,
+      }),
+    ]);
     const data = mergeDailyRevenueTargetsIntoWeeklyData(
       raw,
       snapshot?.dailyTargetsByDate,
     );
 
-    const range = weekRangeForMonth(yearMonth, weekOffset);
+    // Cache completed past weeks that have full data (phase=2 only).
+    if (isPastWeek && !isPhase1 && !raw.cloverError && !raw.cloverNotConfigured) {
+      void prisma.cloverWeeklyCache.upsert({
+        where: { locationId_weekStartDate: { locationId, weekStartDate: startDate } },
+        create: {
+          locationId,
+          weekStartDate: startDate,
+          weekEndDate: endDate,
+          dataJson: JSON.stringify(data),
+          cachedAt: new Date(),
+        },
+        update: {
+          weekEndDate: endDate,
+          dataJson: JSON.stringify(data),
+          cachedAt: new Date(),
+        },
+      });
+    }
 
     return NextResponse.json({
       ok: true,
+      partial: isPhase1,
       yearMonth,
       weekOffset,
-      startDate: range.startDate,
-      endDate: range.endDate,
+      startDate,
+      endDate,
       data,
     });
   } catch (err: unknown) {

@@ -46,14 +46,17 @@ export async function fetchCloverItemIdsByCategory(
   return (json.elements ?? []).map((i) => i.id ?? '').filter(Boolean);
 }
 
-/**
- * Case-insensitive names that indicate a seasonal/special category.
- * Match any category whose name contains one of these terms.
- */
 const SEASONAL_KEYWORDS = /special|seasonal|limited|lto|feature/i;
 
 export function findSeasonalCategory(
   categories: CloverCategory[],
 ): CloverCategory | undefined {
   return categories.find((c) => SEASONAL_KEYWORDS.test(c.name));
+}
+
+const MENU_CATEGORY_KEYWORDS = /drink|food|kids|bakery/i;
+
+/** Returns all categories whose name contains DRINK, FOOD, KIDS, or BAKERY. */
+export function findMenuCategories(categories: CloverCategory[]): CloverCategory[] {
+  return categories.filter((c) => MENU_CATEGORY_KEYWORDS.test(c.name));
 }

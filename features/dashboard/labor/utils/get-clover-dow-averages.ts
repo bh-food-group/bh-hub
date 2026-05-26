@@ -3,6 +3,8 @@
  * Used by LaborTimeNeeded to estimate available hourly labor budget per weekday.
  */
 
+import { unstable_cache } from 'next/cache';
+import { cache } from 'react';
 import { fetchCloverPaymentsInRange } from '@/lib/clover/fetch-payments';
 import { cloverPaymentNetSalesCents } from '@/lib/clover/payment-net-sales';
 import {
@@ -27,12 +29,7 @@ export type CloverDowAveragesData = {
   cloverError?: string;
 };
 
-/**
- * Returns per-DOW average daily Clover net sales for the calendar month
- * immediately before `yearMonth`.
- * DOW: 0=Mon, 1=Tue, …, 6=Sun.
- */
-export async function getCloverDowAverages(
+async function _getCloverDowAveragesUncached(
   locationId: string,
   yearMonth: string,
 ): Promise<CloverDowAveragesData> {
@@ -112,3 +109,18 @@ export async function getCloverDowAverages(
     };
   }
 }
+
+// Previous month is immutable — cache for 24 hours.
+const _getCloverDowAveragesPersisted = unstable_cache(
+  _getCloverDowAveragesUncached,
+  ['clover-dow-averages'],
+  { revalidate: 86400 },
+);
+
+/**
+ * Returns per-DOW average daily Clover net sales for the calendar month
+ * immediately before `yearMonth`.
+ * DOW: 0=Mon, 1=Tue, …, 6=Sun.
+ * Cached for 24 hours (previous month data is immutable).
+ */
+export const getCloverDowAverages = cache(_getCloverDowAveragesPersisted);

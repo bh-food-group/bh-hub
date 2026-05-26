@@ -2,7 +2,6 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Spinner } from '@/components/ui/spinner';
 
 type NavigationProgressContextValue = {
   startNavigation: () => void;
@@ -57,8 +56,8 @@ export function NavigationProgressProvider({ children }: { children: React.React
   return (
     <NavigationProgressContext.Provider value={{ startNavigation }}>
       {isNavigating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <Spinner className="size-8" />
+        <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-primary/20">
+          <div className="h-full bg-primary animate-progress-bar" />
         </div>
       )}
       {children}

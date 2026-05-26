@@ -8,6 +8,7 @@
 import { decryptRefreshToken } from '@/lib/core/encryption';
 import { AppError } from '@/lib/core/errors';
 import { getQuickBooksReportBaseUrl } from './config';
+import { qbAbortStore } from './abort-signal-store';
 import type { QuickBooksProfitAndLossRaw } from './parser';
 
 const QB_COMPANY_INFO_TIMEOUT_MS = 10_000;
@@ -86,6 +87,10 @@ export async function fetchProfitAndLossReportFromQb(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), QB_REPORT_TIMEOUT_MS);
+  const requestSignal = qbAbortStore.getStore();
+  const signal = requestSignal
+    ? AbortSignal.any([controller.signal, requestSignal])
+    : controller.signal;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -93,7 +98,7 @@ export async function fetchProfitAndLossReportFromQb(
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
       },
-      signal: controller.signal,
+      signal,
     });
   } catch (e) {
     clearTimeout(timeoutId);
