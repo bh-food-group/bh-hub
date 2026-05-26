@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
-import { RefreshCw, Link2 } from 'lucide-react';
+import { RefreshCw, Link2, GitMerge } from 'lucide-react';
 
 /** Match GET /api/realm response: realm list with QB connection status per realm. */
 export type RealmWithConnection = {
@@ -23,6 +23,9 @@ export type RealmWithConnection = {
   refreshExpiresAt: string | null;
   accessTokenExpired: boolean;
   refreshTokenExpired: boolean;
+  locationCount: number;
+  isOrphan?: boolean;
+  mergeTargetId?: string;
 };
 
 type ManageRealmsDialogProps = {
@@ -49,6 +52,7 @@ export function ManageRealmsDialog({
   const [isAdminState, setIsAdminState] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [mergingId, setMergingId] = useState<string | null>(null);
 
   const useProps = realmsProp != null;
   const realms = useProps ? realmsProp : realmsState;
@@ -122,6 +126,32 @@ export function ManageRealmsDialog({
     [useProps, onRealmsRefetch, fetchFromRealm],
   );
 
+  const handleMerge = useCallback(
+    async (orphanId: string, targetId: string) => {
+      setMergingId(orphanId);
+      try {
+        const res = await fetch('/api/realm/merge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orphanId, targetId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? 'Merge failed');
+        toast.success('Orphan realm merged and deleted');
+        if (useProps) {
+          onRealmsRefetch?.();
+        } else {
+          await fetchFromRealm();
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Merge failed');
+      } finally {
+        setMergingId(null);
+      }
+    },
+    [useProps, onRealmsRefetch, fetchFromRealm],
+  );
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
@@ -166,14 +196,23 @@ export function ManageRealmsDialog({
               return (
                 <div
                   key={realm.id}
-                  className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                  className={`flex items-center justify-between gap-4 rounded-lg border p-3 ${realm.isOrphan ? 'border-amber-500/50 bg-amber-50/40 dark:bg-amber-950/20' : ''}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">
-                      {realm.name || `Realm ${realm.realmId}`}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium truncate">
+                        {realm.name || `Realm ${realm.realmId}`}
+                      </p>
+                      {realm.isOrphan && (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                          Orphan
+                        </span>
+                      )}
+                    </div>
                     <p className="text-muted-foreground text-sm">
-                      {realm.hasTokens ? (
+                      {realm.isOrphan
+                        ? 'No linked locations — duplicate from reconnect'
+                        : realm.hasTokens ? (
                         realm.refreshExpiresAt ? (
                           <>
                             Connected · Refresh expires{' '}
@@ -188,7 +227,7 @@ export function ManageRealmsDialog({
                         'Not connected'
                       )}
                     </p>
-                    {isAdmin && hint && (
+                    {isAdmin && hint && !realm.isOrphan && (
                       <p
                         className={
                           realm.refreshTokenExpired
@@ -203,7 +242,24 @@ export function ManageRealmsDialog({
                     )}
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    {realm.hasTokens ? (
+                    {realm.isOrphan && realm.mergeTargetId ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleMerge(realm.id, realm.mergeTargetId!)}
+                        disabled={mergingId === realm.id}
+                        className="border-amber-500 text-amber-700 hover:bg-amber-50 dark:text-amber-400"
+                      >
+                        {mergingId === realm.id ? (
+                          <Spinner className="size-4" />
+                        ) : (
+                          <>
+                            <GitMerge className="size-4 mr-1" />
+                            Merge & Delete
+                          </>
+                        )}
+                      </Button>
+                    ) : realm.hasTokens ? (
                       <>
                         {showReconnect && (
                           <Button
@@ -252,7 +308,7 @@ export function ManageRealmsDialog({
                         Connect QuickBooks
                       </Button>
                     )}
-                  </div>
+                  </div> {/* end buttons */}
                 </div>
               );
             })}

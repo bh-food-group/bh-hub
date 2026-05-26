@@ -4,6 +4,7 @@
  * Exchanges code for tokens, upserts Realm (create new or update tokens if conflict), optionally links Location.
  */
 import { AppError } from '@/lib/core/errors';
+import { decryptRefreshToken, isEncrypted } from '@/lib/core/encryption';
 import { prisma } from '@/lib/core/prisma';
 import { mapLegacyDashboardCostPath } from '@/lib/dashboard/default-location';
 import {
@@ -68,10 +69,28 @@ export async function GET(request: NextRequest) {
         ? new Date(Date.now() + token.x_refresh_token_expires_in * 1000)
         : null;
 
-    const existingRealm = await prisma.realm.findUnique({
-      where: { realmId: qbRealmId },
-      select: { id: true, name: true },
+    // Collect every realm row that belongs to this QB company:
+    // - plain-text match (realmId === qbRealmId)
+    // - encrypted match (decrypt(realmId) === qbRealmId, legacy bhpnl migration)
+    const allRealms = await prisma.realm.findMany({
+      select: { id: true, realmId: true, name: true, _count: { select: { locations: true } } },
     });
+    const matchingRealms = allRealms.filter((r) => {
+      const plain = isEncrypted(r.realmId) ? decryptRefreshToken(r.realmId) : r.realmId;
+      return plain === qbRealmId;
+    });
+
+    // Canonical = the realm locations are pointing to; if multiple, pick the one with locations.
+    // All others are orphans (created by prior broken reconnects) and should be deleted.
+    const canonical =
+      matchingRealms.find((r) => r._count.locations > 0) ?? matchingRealms[0] ?? null;
+    const orphanIds = matchingRealms
+      .filter((r) => r !== canonical)
+      .map((r) => r.id);
+
+    if (orphanIds.length > 0) {
+      await prisma.realm.deleteMany({ where: { id: { in: orphanIds } } });
+    }
 
     let name: string;
     if (locationId) {
@@ -80,8 +99,8 @@ export async function GET(request: NextRequest) {
         select: { name: true },
       });
       name = loc?.name ?? `QuickBooks Company ${qbRealmId || 'Unknown'}`;
-    } else if (existingRealm) {
-      name = existingRealm.name;
+    } else if (canonical) {
+      name = canonical.name;
     } else {
       const companyName = await getQuickBooksCompanyName(
         qbRealmId,
@@ -90,23 +109,31 @@ export async function GET(request: NextRequest) {
       name = companyName ?? `QuickBooks Company ${qbRealmId || 'Unknown'}`;
     }
 
-    const realm = await prisma.realm.upsert({
-      where: { realmId: qbRealmId },
-      create: {
-        realmId: qbRealmId,
-        name,
-        accessToken: token.access_token,
-        refreshToken: token.refresh_token,
-        expiresAt,
-        refreshExpiresAt,
-      },
-      update: {
-        accessToken: token.access_token,
-        refreshToken: token.refresh_token,
-        expiresAt,
-        refreshExpiresAt,
-      },
-    });
+    let realm: { id: string };
+    if (canonical) {
+      // Update tokens and normalize realmId to plain text (orphans already deleted above).
+      realm = await prisma.realm.update({
+        where: { id: canonical.id },
+        data: {
+          realmId: qbRealmId,
+          accessToken: token.access_token,
+          refreshToken: token.refresh_token,
+          expiresAt,
+          refreshExpiresAt,
+        },
+      });
+    } else {
+      realm = await prisma.realm.create({
+        data: {
+          realmId: qbRealmId,
+          name,
+          accessToken: token.access_token,
+          refreshToken: token.refresh_token,
+          expiresAt,
+          refreshExpiresAt,
+        },
+      });
+    }
 
     if (locationId) {
       const location = await prisma.location.findUnique({
