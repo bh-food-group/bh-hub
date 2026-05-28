@@ -77,22 +77,9 @@ const LocationOrderPage = async () => {
 
   // Determine the 3 most recent distinct ETA dates and pre-load their line items.
   // All other POs get an empty lineItems array; they load lazily on accordion open.
-  const etaDates = [
-    ...new Set(
-      purchaseOrders
-        .filter((po) => po.expectedDate)
-        .map((po) => (po.expectedDate as Date).toISOString().slice(0, 10))
-        .sort()
-        .reverse(),
-    ),
-  ].slice(0, 3);
-
+  // Pre-load line items for ALL POs that have an ETA date (used by EtaOverview).
   const etaPoIds = purchaseOrders
-    .filter(
-      (po) =>
-        po.expectedDate &&
-        etaDates.includes((po.expectedDate as Date).toISOString().slice(0, 10)),
-    )
+    .filter((po) => po.expectedDate)
     .map((po) => po.id);
 
   const etaLineItemRows =

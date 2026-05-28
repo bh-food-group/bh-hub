@@ -203,8 +203,14 @@ export function LocationOrderView({
       : (allNavSuppliers.find((s) => s.id === selectedSupplierId)?.name ?? 'Supplier');
 
   return (
-    // Fixed height container — each column scrolls independently
-    <div className="flex h-[calc(100dvh-10rem)] gap-0 overflow-hidden rounded-lg border border-border">
+    <div className="flex h-[calc(100dvh-10rem)] flex-col gap-3">
+      {selectedSupplierId === null && (
+        <div className="shrink-0">
+          <EtaOverview supplierGroups={supplierGroups} />
+        </div>
+      )}
+    {/* Fixed height container — each column scrolls independently */}
+    <div className="flex min-h-0 flex-1 gap-0 overflow-hidden rounded-lg border border-border">
       {/* ── Left nav ── */}
       <div className="flex w-52 shrink-0 flex-col border-r border-border bg-muted/30">
         {/* Nav search */}
@@ -359,10 +365,6 @@ export function LocationOrderView({
 
         {/* Scrollable order list */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {selectedSupplierId === null && (
-            <EtaOverview supplierGroups={supplierGroups} />
-          )}
-
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Order History
           </p>
@@ -505,6 +507,7 @@ export function LocationOrderView({
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }
