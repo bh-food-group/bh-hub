@@ -24,14 +24,32 @@ function mapLaborTarget(raw: {
   };
 }
 
+const LABOR_CACHE_TTL_MS = 5 * 60 * 1000;
+const _g = globalThis as unknown as {
+  _laborTargetCache?: Map<string, { value: LaborTargetRow | null; expiresAt: number }>;
+};
+if (!_g._laborTargetCache) _g._laborTargetCache = new Map();
+const _laborTargetCache = _g._laborTargetCache;
+
+export function invalidateLaborTargetCache(locationId: string, yearMonth: string) {
+  _laborTargetCache.delete(`${locationId}:${yearMonth}`);
+}
+
 export async function getLaborTargetByLocationAndMonth(
   locationId: string,
   yearMonth: string,
 ): Promise<LaborTargetRow | null> {
+  const key = `${locationId}:${yearMonth}`;
+  const now = Date.now();
+  const hit = _laborTargetCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value;
+
   const raw = await prisma.laborTarget.findUnique({
     where: { locationId_yearMonth: { locationId, yearMonth } },
   });
-  return raw ? mapLaborTarget(raw) : null;
+  const value = raw ? mapLaborTarget(raw) : null;
+  _laborTargetCache.set(key, { value, expiresAt: now + LABOR_CACHE_TTL_MS });
+  return value;
 }
 
 export async function upsertLaborTarget(

@@ -33,7 +33,7 @@ const HeaderNav = ({
           </>
         )}
         {getCanSeeOrderSection(role) && (
-          <HeaderNavItem href="/order">Order</HeaderNavItem>
+          <HeaderNavItem href="/order" prefetch={false}>Order</HeaderNavItem>
         )}
         {getCanSeeDeliveryAndCost(role) && (
           <>

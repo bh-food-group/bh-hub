@@ -1,16 +1,35 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 
 // Use DATABASE_URL or fallback so build/static generation succeeds without .env
 const connectionString =
   process.env.DATABASE_URL ??
   'postgresql://placeholder:placeholder@localhost:5432/placeholder';
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+  pgPool?: Pool;
+};
+
+// Singleton pg.Pool shared across PrismaClient instances.
+// max:10 — enough for concurrent bursts (location-cards × 5 + clover × 3 + others).
+// idleTimeoutMillis:60s — keeps warm connections alive between browser sessions in dev
+// and across Fluid Compute request reuse in production.
+function getPool(): Pool {
+  if (!globalForPrisma.pgPool) {
+    globalForPrisma.pgPool = new Pool({
+      connectionString,
+      max: 10,
+      idleTimeoutMillis: 60_000,
+    });
+  }
+  return globalForPrisma.pgPool;
+}
 
 function createPrismaClient(): PrismaClient {
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString }),
+    adapter: new PrismaPg(getPool()),
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 }
@@ -47,6 +66,12 @@ function getPrismaClient(): PrismaClient {
     return fresh;
   }
   return cached;
+}
+
+export function getPoolStats() {
+  const pool = globalForPrisma.pgPool;
+  if (!pool) return { total: 0, idle: 0, waiting: 0, initialized: false };
+  return { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount, initialized: true };
 }
 
 /**

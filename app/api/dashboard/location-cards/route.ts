@@ -36,14 +36,17 @@ import {
 } from '@/features/dashboard/revenue/utils/week-range';
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { toApiErrorResponse } from '@/lib/core/errors';
-import { prisma } from '@/lib/core';
+import { getLocationById } from '@/lib/core/location-cache';
 import { isValidYearMonth } from '@/lib/utils';
 import { qbAbortStore } from '@/lib/quickbooks/abort-signal-store';
+import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
+  const tHandler = Date.now();
   try {
     const session = await auth();
+    console.log(`[lc] auth=${Date.now() - tHandler}ms`);
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
@@ -92,10 +95,7 @@ async function fetchBaseData({ locationId, yearMonth, userId }: Ctx) {
   const context: QuickBooksApiContext = { baseUrl: '', cookie: null };
 
   const [location, budgetOrNull] = await Promise.all([
-    timed('location-db', prisma.location.findUnique({
-      where: { id: locationId },
-      select: { id: true, startYearMonth: true },
-    })),
+    timed('location-db', getLocationById(locationId)),
     timed('budget-db', getBudgetByLocationAndMonth(locationId, yearMonth)),
   ]);
 
@@ -116,7 +116,7 @@ async function fetchBaseData({ locationId, yearMonth, userId }: Ctx) {
     return { ok: true as const, noBudget: true as const, noBudgetReason };
   }
 
-  void ensureRevenueTargetForMonth({ locationId, yearMonth });
+  after(() => ensureRevenueTargetForMonth({ locationId, yearMonth }));
 
   const initialWeekOffset = clampWeekOffsetForDashboard(
     yearMonth,
@@ -213,7 +213,7 @@ async function handlePhase2(request: NextRequest, ctx: Ctx): Promise<NextRespons
     monthlyRevenueTarget: revenueSnapshot?.monthlyTarget,
   };
 
-  return NextResponse.json({
+  const responseBody = {
     ok: true,
     partial: false,
     budget: finalBudget,
@@ -225,5 +225,7 @@ async function handlePhase2(request: NextRequest, ctx: Ctx): Promise<NextRespons
       : null,
     savedRefMonths,
     initialWeekOffset,
-  });
+  };
+  log(`pre-return (body=${JSON.stringify(responseBody).length}B)`);
+  return NextResponse.json(responseBody);
 }

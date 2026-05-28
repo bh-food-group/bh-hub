@@ -1,5 +1,3 @@
-import { unstable_cache } from 'next/cache';
-import { cache } from 'react';
 import { prisma } from '@/lib/core/prisma';
 import { revenueBucketKeyForIsoDate } from './revenue-target-bucket-key';
 import type { RevenueTargetSharesPayload } from './revenue-target-types';
@@ -265,33 +263,52 @@ async function _getRevenueTargetSnapshotUncached(
   return { annualGoal: annual, monthlyTarget, dailyTargetsByDate };
 }
 
-const _getRevenueTargetSnapshotPersisted = unstable_cache(
-  _getRevenueTargetSnapshotUncached,
-  ['revenue-target-snapshot'],
-  { revalidate: 300 },
-);
+const REV_CACHE_TTL_MS = 5 * 60 * 1000;
 
-/** Revenue target snapshot with 5-min persistent cache + per-request dedup. */
-export const getRevenueTargetSnapshot = cache(_getRevenueTargetSnapshotPersisted);
+const _gRev = globalThis as unknown as {
+  _revenueSnapshotCache?: Map<string, { value: RevenueTargetSnapshot | null; expiresAt: number }>;
+  _revenueRefMonthsCache?: Map<string, { value: number | null; expiresAt: number }>;
+};
+if (!_gRev._revenueSnapshotCache) _gRev._revenueSnapshotCache = new Map();
+if (!_gRev._revenueRefMonthsCache) _gRev._revenueRefMonthsCache = new Map();
+const _revenueSnapshotCache = _gRev._revenueSnapshotCache;
+const _revenueRefMonthsCache = _gRev._revenueRefMonthsCache;
 
-async function _getRevenueMonthTargetRefMonthsUncached(
+export function invalidateRevenueSnapshotCache(locationId: string, yearMonth: string) {
+  _revenueSnapshotCache.delete(`${locationId}:${yearMonth}`);
+  _revenueRefMonthsCache.delete(`${locationId}:${yearMonth}`);
+}
+
+/** Revenue target snapshot with 5-min in-process cache shared across module contexts. */
+export async function getRevenueTargetSnapshot(
+  locationId: string,
+  yearMonth: string,
+): Promise<RevenueTargetSnapshot | null> {
+  const key = `${locationId}:${yearMonth}`;
+  const now = Date.now();
+  const hit = _revenueSnapshotCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value;
+
+  const value = await _getRevenueTargetSnapshotUncached(locationId, yearMonth);
+  _revenueSnapshotCache.set(key, { value, expiresAt: now + REV_CACHE_TTL_MS });
+  return value;
+}
+
+/** Returns the saved referencePeriodMonths with 5-min in-process cache shared across module contexts. */
+export async function getRevenueMonthTargetRefMonths(
   locationId: string,
   appliesYearMonth: string,
 ): Promise<number | null> {
+  const key = `${locationId}:${appliesYearMonth}`;
+  const now = Date.now();
+  const hit = _revenueRefMonthsCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value;
+
   const row = await prisma.revenueMonthTarget.findUnique({
     where: { locationId_appliesYearMonth: { locationId, appliesYearMonth } },
     select: { referencePeriodMonths: true },
   });
-  return row?.referencePeriodMonths ?? null;
+  const value = row?.referencePeriodMonths ?? null;
+  _revenueRefMonthsCache.set(key, { value, expiresAt: now + REV_CACHE_TTL_MS });
+  return value;
 }
-
-const _getRevenueMonthTargetRefMonthsPersisted = unstable_cache(
-  _getRevenueMonthTargetRefMonthsUncached,
-  ['revenue-month-target-ref-months'],
-  { revalidate: 300 },
-);
-
-/** Returns the saved referencePeriodMonths with 5-min persistent cache + per-request dedup. */
-export const getRevenueMonthTargetRefMonths = cache(
-  _getRevenueMonthTargetRefMonthsPersisted,
-);

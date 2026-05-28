@@ -1,5 +1,5 @@
 import { AppError } from '@/lib/core/errors';
-import { prisma } from '@/lib/core/prisma';
+import { prisma, getPoolStats } from '@/lib/core/prisma';
 import type { Prisma } from '@prisma/client';
 import type {
   BudgetDataType,
@@ -179,15 +179,59 @@ export async function ensureBudgetForMonth(
   }
 }
 
+// In-process TTL cache: budget data changes rarely (manual edits or QB recompute).
+// Eliminates the ~4s Supabase cold-query cost on subsequent loads of the same month.
+// Stored on globalThis so instrumentation.ts (native ESM) and webpack route handlers
+// share the exact same Map instance — instrumentation warmup then populates the cache
+// that route handlers read.
+const _globalForBudgetCache = globalThis as unknown as {
+  _budgetCache?: Map<string, { value: BudgetDataType | null; expiresAt: number }>;
+};
+if (!_globalForBudgetCache._budgetCache) {
+  _globalForBudgetCache._budgetCache = new Map();
+}
+const _budgetCache = _globalForBudgetCache._budgetCache;
+const BUDGET_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function invalidateBudgetCache(locationId: string, yearMonth: string) {
+  _budgetCache.delete(`${locationId}:${yearMonth}`);
+}
+
 export async function getBudgetByLocationAndMonth(
   locationId: string,
   yearMonth: string,
 ): Promise<BudgetDataType | null> {
+  const key = `${locationId}:${yearMonth}`;
+  const now = Date.now();
+  const hit = _budgetCache.get(key);
+  if (hit && hit.expiresAt > now) {
+    console.log(`[budget] cache-hit ${yearMonth}`);
+    return hit.value;
+  }
+
+  const t0 = Date.now();
+  console.log('[budget] pool-at-start:', JSON.stringify(getPoolStats()));
   const raw = await prisma.budget.findUnique({
     where: { locationId_yearMonth: { locationId, yearMonth } },
-    include: { location: true },
+    include: { location: { select: { id: true, code: true, name: true } } },
   });
-  return raw ? mapBudgetToDataType(raw) : null;
+  console.log(`[budget] query=${Date.now() - t0}ms pool-after:`, JSON.stringify(getPoolStats()));
+
+  const value: BudgetDataType | null = raw
+    ? {
+        id: raw.id,
+        locationId: raw.locationId,
+        yearMonth: raw.yearMonth,
+        totalAmount: Number(raw.totalAmount),
+        budgetRateUsed: raw.budgetRateUsed != null ? Number(raw.budgetRateUsed) : null,
+        referencePeriodMonthsUsed: raw.referencePeriodMonthsUsed,
+        error: raw.error ?? null,
+        location: raw.location,
+        categories: [],
+      }
+    : null;
+  _budgetCache.set(key, { value, expiresAt: now + BUDGET_CACHE_TTL_MS });
+  return value;
 }
 
 export async function attachCurrentMonthCosToBudgets<

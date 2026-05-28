@@ -11,7 +11,8 @@ const HeaderNavItem = ({
   href,
   children,
   target,
-}: PropsWithChildren<ClassName & { href: string; target?: string }>) => {
+  prefetch,
+}: PropsWithChildren<ClassName & { href: string; target?: string; prefetch?: boolean }>) => {
   'use client';
   const pathname = usePathname();
   const isActive = pathname.includes(href);
@@ -26,7 +27,7 @@ const HeaderNavItem = ({
       )}
       asChild
     >
-      <Link href={href} target={target}>
+      <Link href={href} target={target} prefetch={prefetch}>
         {children}
       </Link>
     </Button>

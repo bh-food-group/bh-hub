@@ -1,6 +1,6 @@
 import LocationDashboardCards from '@/features/dashboard/location/components/LocationDashboardCards';
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
-import { prisma } from '@/lib/core';
+import { getLocationById } from '@/lib/core/location-cache';
 import { getCurrentYearMonth, isValidYearMonth } from '@/lib/utils';
 import { notFound, redirect } from 'next/navigation';
 
@@ -13,10 +13,8 @@ const LocationPage = async ({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ yearMonth?: string }>;
 }) => {
-  const session = await auth();
+  const [session, { id }] = await Promise.all([auth(), params]);
   const isOfficeOrAdmin = getOfficeOrAdmin(session?.user?.role);
-
-  const { id } = await params;
 
   // Managers can only view their own location — redirect instead of 403.
   if (!isOfficeOrAdmin) {
@@ -29,10 +27,7 @@ const LocationPage = async ({
     }
   }
 
-  const location = id
-    ? await prisma.location.findUnique({ where: { id } })
-    : await prisma.location.findFirst({ orderBy: { createdAt: 'asc' } });
-
+  const location = await getLocationById(id);
   if (!location) return notFound();
 
   const { yearMonth: searchYearMonth } = await searchParams;
