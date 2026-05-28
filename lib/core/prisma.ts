@@ -18,11 +18,13 @@ const globalForPrisma = globalThis as unknown as {
 // and across Fluid Compute request reuse in production.
 function getPool(): Pool {
   if (!globalForPrisma.pgPool) {
-    globalForPrisma.pgPool = new Pool({
+    const pool = new Pool({
       connectionString,
       max: 10,
       idleTimeoutMillis: 60_000,
+      connectionTimeoutMillis: 10_000,
     });
+    globalForPrisma.pgPool = pool;
   }
   return globalForPrisma.pgPool;
 }
@@ -66,6 +68,15 @@ function getPrismaClient(): PrismaClient {
     return fresh;
   }
   return cached;
+}
+
+export function resetPool() {
+  const pool = globalForPrisma.pgPool;
+  if (pool) {
+    globalForPrisma.pgPool = undefined;
+    globalForPrisma.prisma = undefined;
+    pool.end().catch(() => {});
+  }
 }
 
 export function getPoolStats() {

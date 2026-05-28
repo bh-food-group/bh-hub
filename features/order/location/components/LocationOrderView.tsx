@@ -204,11 +204,9 @@ export function LocationOrderView({
 
   return (
     <div className="flex h-[calc(100dvh-10rem)] flex-col gap-3">
-      {selectedSupplierId === null && (
-        <div className="shrink-0">
-          <EtaOverview supplierGroups={supplierGroups} />
-        </div>
-      )}
+      <div className="shrink-0">
+        <EtaOverview supplierGroups={supplierGroups} />
+      </div>
     {/* Fixed height container — each column scrolls independently */}
     <div className="flex min-h-0 flex-1 gap-0 overflow-hidden rounded-lg border border-border">
       {/* ── Left nav ── */}
