@@ -12,7 +12,7 @@ import { fetchAllShopifyOrders } from '@/lib/shopify/fetchOrders';
 import { syncOneOrder, upsertShopifyCustomerFromAdminNode } from '@/lib/shopify/sync/upsert-order';
 import { createShopifyAdminGraphqlClient } from '@/lib/shopify/createFulfillment';
 
-const CONCURRENCY = 10;
+const CONCURRENCY = 3;
 
 export type ShopifySyncMode = 'incremental' | 'full';
 

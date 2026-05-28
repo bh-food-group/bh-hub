@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useTransition } from 'react';
+import { getPoLineItems } from '../actions';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils/cn';
-import { ChevronDown, ChevronRight, Package, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Package, Search } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { enUS } from 'date-fns/locale';
+import { EtaOverview } from './EtaOverview';
 import type {
+  LocationOrderLineItem,
   LocationOrderSupplierGroup,
   FavoriteSupplier,
   SupplierGroupNav,
@@ -65,6 +68,9 @@ export function LocationOrderView({
   const [navSearch, setNavSearch] = useState('');
   const [navSort, setNavSort] = useState<'count' | 'alpha'>('count');
   const [openPOs, setOpenPOs] = useState<Set<string>>(new Set());
+  // null = loading in progress, array = loaded (possibly empty)
+  const [lineItemsCache, setLineItemsCache] = useState<Map<string, LocationOrderLineItem[] | null>>(new Map());
+  const [, startTransition] = useTransition();
   const [statusFilter, setStatusFilter] = useState('all');
   const [contentSearch, setContentSearch] = useState('');
 
@@ -120,6 +126,19 @@ export function LocationOrderView({
       );
   }, [supplierGroups, groupIdBySupplierId, selectedGroupId, navSearch, navSort]);
 
+  // Supplier-filtered groups (respects nav selection, ignores status/content search).
+  // Used for EtaOverview so the ETA summary always shows all ETAs for the selected supplier.
+  const supplierFilteredGroups = useMemo(() => {
+    if (selectedSupplierId === null) return supplierGroups;
+    if (selectedSupplierId === '__unknown__') {
+      return supplierGroups.filter((g) => g.supplierId === null);
+    }
+    const navEntry = allNavSuppliers.find((s) => s.id === selectedSupplierId);
+    return navEntry
+      ? supplierGroups.filter((g) => g.supplierName === navEntry.name)
+      : supplierGroups.filter((g) => g.supplierId === selectedSupplierId);
+  }, [supplierGroups, selectedSupplierId, allNavSuppliers]);
+
   // Right-panel content
   const visibleGroups = useMemo(() => {
     let base: typeof supplierGroups;
@@ -156,12 +175,21 @@ export function LocationOrderView({
       .filter((g) => g.purchaseOrders.length > 0);
   }, [supplierGroups, selectedSupplierId, statusFilter, contentSearch]);
 
-  function togglePO(id: string) {
+  function togglePO(id: string, hasPreloadedItems: boolean) {
+    const willOpen = !openPOs.has(id);
     setOpenPOs((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+    if (willOpen && !hasPreloadedItems && !lineItemsCache.has(id)) {
+      setLineItemsCache((prev) => new Map(prev).set(id, null));
+      startTransition(() => {
+        void getPoLineItems(id).then((items) => {
+          setLineItemsCache((prev) => new Map(prev).set(id, items));
+        });
+      });
+    }
   }
 
   const totalPOs = supplierGroups.reduce(
@@ -331,6 +359,14 @@ export function LocationOrderView({
 
         {/* Scrollable order list */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {selectedSupplierId === null && (
+            <EtaOverview supplierGroups={supplierGroups} />
+          )}
+
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Order History
+          </p>
+
           {visibleGroups.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
               <Package className="size-10 opacity-40" />
@@ -348,6 +384,11 @@ export function LocationOrderView({
                   <div className="rounded-lg border border-border bg-card">
                     {group.purchaseOrders.map((po) => {
                       const poOpen = openPOs.has(po.id);
+                      const hasPreloadedItems = po.lineItems.length > 0;
+                      const lazyItems = lineItemsCache.get(po.id);
+                      // null = loading, array = loaded, undefined = not yet fetched
+                      const lineItems: LocationOrderLineItem[] | null =
+                        hasPreloadedItems ? po.lineItems : (lazyItems ?? null);
                       const badgeVariant: BadgeVariant =
                         STATUS_BADGE[po.status] ?? 'secondary';
                       return (
@@ -357,7 +398,7 @@ export function LocationOrderView({
                         >
                           <button
                             className="flex w-full items-center gap-6 px-4 py-2.5 text-left hover:bg-muted/40"
-                            onClick={() => togglePO(po.id)}
+                            onClick={() => togglePO(po.id, hasPreloadedItems)}
                           >
                             {poOpen ? (
                               <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
@@ -375,10 +416,6 @@ export function LocationOrderView({
                                 ? po.shopifyOrderNames.join(', ')
                                 : '—'}
                             </span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {po.lineItems.length} item
-                              {po.lineItems.length !== 1 ? 's' : ''}
-                            </span>
                             <div className="flex shrink-0 gap-4">
                               <DateCell label="Ordered" value={po.orderedAt} />
                               <DateCell
@@ -391,6 +428,15 @@ export function LocationOrderView({
 
                           {poOpen && (
                             <div className="bg-muted/20 px-4 pb-2 pt-1">
+                              {po.comment && (
+                                <p className="mb-2 text-xs text-muted-foreground">{po.comment}</p>
+                              )}
+                              {lineItems === null ? (
+                                <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                  Loading…
+                                </div>
+                              ) : (
                               <table className="w-full text-xs">
                                 <thead>
                                   <tr className="border-b border-border text-muted-foreground">
@@ -401,10 +447,7 @@ export function LocationOrderView({
                                       SKU
                                     </th>
                                     <th className="py-1 text-right font-medium">
-                                      Ordered
-                                    </th>
-                                    <th className="py-1 text-right font-medium">
-                                      Received
+                                      Qty
                                     </th>
                                     <th className="py-1 text-right font-medium">
                                       Unit Price
@@ -412,7 +455,7 @@ export function LocationOrderView({
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {po.lineItems.map((li) => (
+                                  {lineItems.map((li) => (
                                     <tr
                                       key={li.id}
                                       className="border-b border-border/50 last:border-0"
@@ -428,25 +471,17 @@ export function LocationOrderView({
                                               — {li.variantTitle}
                                             </span>
                                           )}
+                                        {li.note && (
+                                          <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                            {li.note}
+                                          </p>
+                                        )}
                                       </td>
                                       <td className="py-1.5 pr-4 font-mono text-muted-foreground">
                                         {li.sku ?? '—'}
                                       </td>
                                       <td className="py-1.5 pr-2 text-right">
                                         {li.quantity}
-                                      </td>
-                                      <td className="py-1.5 pr-2 text-right">
-                                        <span
-                                          className={
-                                            li.quantityReceived >= li.quantity
-                                              ? 'text-green-700'
-                                              : li.quantityReceived > 0
-                                                ? 'text-amber-700'
-                                                : 'text-muted-foreground'
-                                          }
-                                        >
-                                          {li.quantityReceived}
-                                        </span>
                                       </td>
                                       <td className="py-1.5 text-right font-mono text-muted-foreground">
                                         {li.itemPrice
@@ -457,6 +492,7 @@ export function LocationOrderView({
                                   ))}
                                 </tbody>
                               </table>
+                              )}
                             </div>
                           )}
                         </div>

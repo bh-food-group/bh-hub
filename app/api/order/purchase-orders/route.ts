@@ -117,114 +117,117 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const po = await prisma.$transaction(async (tx) => {
-      let poNumber = data.poNumber;
-      if (poNumber === 'AUTO') {
-        const latest = await tx.purchaseOrder.findFirst({
-          orderBy: { poNumber: 'desc' },
-          select: { poNumber: true },
-        });
-        const lastNum = latest?.poNumber
-          ? parseInt(latest.poNumber.replace(/\D/g, ''), 10) || 0
-          : 0;
-        poNumber = String(lastNum + 1);
-      }
-
-      const authorizedBy =
-        session.user?.name?.trim() || session.user?.email?.trim() || null;
-
-      const created = await tx.purchaseOrder.create({
-        data: {
-          poNumber,
-          currency: data.currency,
-          isAuto: data.isAuto,
-          status: data.hubPending ? 'pending' : 'unfulfilled',
-          dateCreated: new Date(),
-          expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
-          comment: data.comment ?? null,
-          supplierId: data.supplierId ?? null,
-          shippingAddress: data.shippingAddress ?? undefined,
-          billingAddress: data.billingAddress ?? undefined,
-          billingSameAsShipping: data.billingSameAsShipping,
-          deliveryLocationPresetId: data.deliveryLocationPresetId ?? null,
-          authorizedBy,
-          createdById: session.user.id,
-        },
-      });
-
-      if (lineItems.length > 0) {
-        const resolvedVariantGids: string[] = [];
-        for (let idx = 0; idx < lineItems.length; idx++) {
-          const li = lineItems[idx];
-          let vg = li.shopifyVariantGid?.trim() ?? null;
-          if (!vg) vg = lineResolvedVariantGids[idx]?.trim() ?? null;
-          if (vg) resolvedVariantGids.push(vg);
+    const po = await prisma.$transaction(
+      async (tx) => {
+        let poNumber = data.poNumber;
+        if (poNumber === 'AUTO') {
+          const latest = await tx.purchaseOrder.findFirst({
+            orderBy: { poNumber: 'desc' },
+            select: { poNumber: true },
+          });
+          const lastNum = latest?.poNumber
+            ? parseInt(latest.poNumber.replace(/\D/g, ''), 10) || 0
+            : 0;
+          poNumber = String(lastNum + 1);
         }
-        const noteByVariant = await loadVariantOfficeNotesMap(
-          tx,
-          resolvedVariantGids,
-        );
 
-        await tx.purchaseOrderLineItem.createMany({
-          data: lineItems.map((li, idx) => {
+        const authorizedBy =
+          session.user?.name?.trim() || session.user?.email?.trim() || null;
+
+        const created = await tx.purchaseOrder.create({
+          data: {
+            poNumber,
+            currency: data.currency,
+            isAuto: data.isAuto,
+            status: data.hubPending ? 'pending' : 'unfulfilled',
+            dateCreated: new Date(),
+            expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
+            comment: data.comment ?? null,
+            supplierId: data.supplierId ?? null,
+            shippingAddress: data.shippingAddress ?? undefined,
+            billingAddress: data.billingAddress ?? undefined,
+            billingSameAsShipping: data.billingSameAsShipping,
+            deliveryLocationPresetId: data.deliveryLocationPresetId ?? null,
+            authorizedBy,
+            createdById: session.user.id,
+          },
+        });
+
+        if (lineItems.length > 0) {
+          const resolvedVariantGids: string[] = [];
+          for (let idx = 0; idx < lineItems.length; idx++) {
+            const li = lineItems[idx];
             let vg = li.shopifyVariantGid?.trim() ?? null;
             if (!vg) vg = lineResolvedVariantGids[idx]?.trim() ?? null;
-            const defaultNote = vg ? (noteByVariant.get(vg) ?? null) : null;
-            const fromClient =
-              typeof li.note === 'string' ? li.note.trim() : '';
-            const resolvedNote = (fromClient || defaultNote) ?? null;
-            return {
-              purchaseOrderId: created.id,
-              sequence: idx + 1,
-              quantity: li.quantity,
-              sku: li.sku ?? null,
-              variantTitle: li.variantTitle ?? null,
-              productTitle: li.productTitle ?? null,
-              itemPrice: li.itemPrice ?? null,
-              supplierRef: li.supplierRef ?? null,
-              isCustom: li.isCustom ?? false,
-              shopifyVariantGid: li.shopifyVariantGid ?? null,
-              shopifyProductGid: li.shopifyProductGid ?? null,
-              shopifyOrderLineItemId: lineShopifyOrderLineItemIds[idx] ?? null,
-              note: resolvedNote,
-            };
-          }),
-        });
-      }
+            if (vg) resolvedVariantGids.push(vg);
+          }
+          const noteByVariant = await loadVariantOfficeNotesMap(
+            tx,
+            resolvedVariantGids,
+          );
 
-      if (shopifyOrderIds.length > 0) {
-        await tx.purchaseOrder.update({
-          where: { id: created.id },
-          data: {
-            shopifyOrders: {
-              connect: shopifyOrderIds.map((id) => ({ id })),
+          await tx.purchaseOrderLineItem.createMany({
+            data: lineItems.map((li, idx) => {
+              let vg = li.shopifyVariantGid?.trim() ?? null;
+              if (!vg) vg = lineResolvedVariantGids[idx]?.trim() ?? null;
+              const defaultNote = vg ? (noteByVariant.get(vg) ?? null) : null;
+              const fromClient =
+                typeof li.note === 'string' ? li.note.trim() : '';
+              const resolvedNote = (fromClient || defaultNote) ?? null;
+              return {
+                purchaseOrderId: created.id,
+                sequence: idx + 1,
+                quantity: li.quantity,
+                sku: li.sku ?? null,
+                variantTitle: li.variantTitle ?? null,
+                productTitle: li.productTitle ?? null,
+                itemPrice: li.itemPrice ?? null,
+                supplierRef: li.supplierRef ?? null,
+                isCustom: li.isCustom ?? false,
+                shopifyVariantGid: li.shopifyVariantGid ?? null,
+                shopifyProductGid: li.shopifyProductGid ?? null,
+                shopifyOrderLineItemId: lineShopifyOrderLineItemIds[idx] ?? null,
+                note: resolvedNote,
+              };
+            }),
+          });
+        }
+
+        if (shopifyOrderIds.length > 0) {
+          await tx.purchaseOrder.update({
+            where: { id: created.id },
+            data: {
+              shopifyOrders: {
+                connect: shopifyOrderIds.map((id) => ({ id })),
+              },
             },
-          },
-        });
-      }
+          });
+        }
 
-      return tx.purchaseOrder.findUniqueOrThrow({
-        where: { id: created.id },
-        include: {
-          lineItems: {
-            orderBy: { sequence: 'asc' },
-            include: { shopifyOrderLineItem: true },
-          },
-          shopifyOrders: { include: { customer: true } },
-          supplier: true,
-          emailDeliveries: true,
-          createdBy: prismaPoCreatedByInclude,
-          deliveryLocationPreset: {
-            include: {
-              locations: {
-                select: { id: true, code: true, name: true },
-                orderBy: { code: 'asc' },
+        return tx.purchaseOrder.findUniqueOrThrow({
+          where: { id: created.id },
+          include: {
+            lineItems: {
+              orderBy: { sequence: 'asc' },
+              include: { shopifyOrderLineItem: true },
+            },
+            shopifyOrders: { include: { customer: true } },
+            supplier: true,
+            emailDeliveries: true,
+            createdBy: prismaPoCreatedByInclude,
+            deliveryLocationPreset: {
+              include: {
+                locations: {
+                  select: { id: true, code: true, name: true },
+                  orderBy: { code: 'asc' },
+                },
               },
             },
           },
-        },
-      });
-    });
+        });
+      },
+      { maxWait: 10000, timeout: 30000 },
+    );
 
     return NextResponse.json(
       {

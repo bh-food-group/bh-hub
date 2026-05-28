@@ -16,8 +16,8 @@ export type LocationOrderLineItem = {
   variantTitle: string | null;
   sku: string | null;
   quantity: number;
-  quantityReceived: number;
   itemPrice: string | null;
+  note: string | null;
 };
 
 export type LocationOrderPO = {
@@ -29,6 +29,7 @@ export type LocationOrderPO = {
   dateCreated: string | null;
   expectedDate: string | null;
   totalPrice: string | null;
+  comment: string | null;
   lineItems: LocationOrderLineItem[];
   shopifyOrderNames: string[];
 };

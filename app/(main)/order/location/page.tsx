@@ -39,6 +39,7 @@ const LocationOrderPage = async () => {
     );
   }
 
+  // Load PO metadata without line items for fast initial render.
   const [purchaseOrders, rawFavorites, rawGroups] = await Promise.all([
     prisma.purchaseOrder.findMany({
       where: {
@@ -47,6 +48,7 @@ const LocationOrderPage = async () => {
         },
       },
       orderBy: [{ dateCreated: 'desc' }, { createdAt: 'desc' }],
+      take: 300,
       select: {
         id: true,
         poNumber: true,
@@ -54,20 +56,8 @@ const LocationOrderPage = async () => {
         dateCreated: true,
         expectedDate: true,
         totalPrice: true,
+        comment: true,
         supplier: { select: { id: true, company: true } },
-        lineItems: {
-          orderBy: { sequence: 'asc' },
-          select: {
-            id: true,
-            sequence: true,
-            productTitle: true,
-            variantTitle: true,
-            sku: true,
-            quantity: true,
-            quantityReceived: true,
-            itemPrice: true,
-          },
-        },
         shopifyOrders: {
           where: { email: { in: locationEmails } },
           select: { name: true, processedAt: true, shopifyCreatedAt: true },
@@ -85,7 +75,52 @@ const LocationOrderPage = async () => {
     }),
   ]);
 
-  // Group POs by supplier ID.
+  // Determine the 3 most recent distinct ETA dates and pre-load their line items.
+  // All other POs get an empty lineItems array; they load lazily on accordion open.
+  const etaDates = [
+    ...new Set(
+      purchaseOrders
+        .filter((po) => po.expectedDate)
+        .map((po) => (po.expectedDate as Date).toISOString().slice(0, 10))
+        .sort()
+        .reverse(),
+    ),
+  ].slice(0, 3);
+
+  const etaPoIds = purchaseOrders
+    .filter(
+      (po) =>
+        po.expectedDate &&
+        etaDates.includes((po.expectedDate as Date).toISOString().slice(0, 10)),
+    )
+    .map((po) => po.id);
+
+  const etaLineItemRows =
+    etaPoIds.length > 0
+      ? await prisma.purchaseOrderLineItem.findMany({
+          where: { purchaseOrderId: { in: etaPoIds } },
+          orderBy: { sequence: 'asc' },
+          select: {
+            id: true,
+            purchaseOrderId: true,
+            sequence: true,
+            productTitle: true,
+            variantTitle: true,
+            sku: true,
+            quantity: true,
+            itemPrice: true,
+            note: true,
+          },
+        })
+      : [];
+
+  const lineItemsByPoId = new Map<string, typeof etaLineItemRows>();
+  for (const li of etaLineItemRows) {
+    const arr = lineItemsByPoId.get(li.purchaseOrderId) ?? [];
+    arr.push(li);
+    lineItemsByPoId.set(li.purchaseOrderId, arr);
+  }
+
   const groupMap = new Map<string, LocationOrderSupplierGroup>();
 
   for (const po of purchaseOrders) {
@@ -103,23 +138,24 @@ const LocationOrderPage = async () => {
       dateCreated: po.dateCreated?.toISOString() ?? null,
       expectedDate: po.expectedDate?.toISOString() ?? null,
       totalPrice: po.totalPrice?.toString() ?? null,
-      lineItems: po.lineItems.map((li) => ({
+      comment: po.comment ?? null,
+      lineItems: (lineItemsByPoId.get(po.id) ?? []).map((li) => ({
         id: li.id,
         sequence: li.sequence,
         productTitle: li.productTitle,
         variantTitle: li.variantTitle,
         sku: li.sku,
         quantity: li.quantity,
-        quantityReceived: li.quantityReceived,
         itemPrice: li.itemPrice?.toString() ?? null,
+        note: li.note ?? null,
       })),
       orderedAt: (() => {
-          const dates = po.shopifyOrders
-            .map((o) => o.processedAt ?? o.shopifyCreatedAt)
-            .filter((d): d is Date => d != null);
-          if (dates.length === 0) return null;
-          return new Date(Math.min(...dates.map((d) => d.getTime()))).toISOString();
-        })(),
+        const dates = po.shopifyOrders
+          .map((o) => o.processedAt ?? o.shopifyCreatedAt)
+          .filter((d): d is Date => d != null);
+        if (dates.length === 0) return null;
+        return new Date(Math.min(...dates.map((d) => d.getTime()))).toISOString();
+      })(),
       shopifyOrderNames: po.shopifyOrders.map((o) => o.name),
     });
   }
