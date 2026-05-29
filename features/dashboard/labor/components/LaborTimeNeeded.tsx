@@ -34,27 +34,32 @@ export default function LaborTimeNeeded({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    const ac = new AbortController();
     setLoading(true);
+    setDowState(null);
+    setSummary(null);
 
     const q = new URLSearchParams({ locationId, yearMonth });
 
     // Fetch both in parallel — Clover DOW averages + prev month QB labor summary.
+    // AbortController cancels server-side requests on unmount (e.g. month navigation)
+    // so long-running Clover/QB calls don't hold DB connections after the user leaves.
     Promise.all([
-      fetch(`/api/dashboard/labor/clover/dow-averages?${q.toString()}`, { cache: 'no-store' })
+      fetch(`/api/dashboard/labor/clover/dow-averages?${q.toString()}`, { cache: 'no-store', signal: ac.signal })
         .then((r) => r.json() as Promise<CloverDowAveragesData & { ok?: boolean }>),
-      fetch(`/api/dashboard/labor/prev-month-summary?${q.toString()}`, { cache: 'no-store' })
+      fetch(`/api/dashboard/labor/prev-month-summary?${q.toString()}`, { cache: 'no-store', signal: ac.signal })
         .then((r) => r.json() as Promise<PrevMonthSummary & { ok?: boolean }>),
     ])
       .then(([dow, sum]) => {
-        if (cancelled) return;
         setDowState(dow);
         if (sum.ok) setSummary(sum);
       })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'AbortError') return;
+      })
+      .finally(() => { if (!ac.signal.aborted) setLoading(false); });
 
-    return () => { cancelled = true; };
+    return () => ac.abort();
   }, [locationId, yearMonth]);
 
   // Previous month's day count — everything references last month.

@@ -151,10 +151,11 @@ export async function ensureBudgetForMonth(
           error: null,
         },
       });
-      return prisma.budget.findUniqueOrThrow({
+      const result = await prisma.budget.findUniqueOrThrow({
         where: { id: existing.id },
         include: { location: true },
       });
+      return result;
     }
 
     return prisma.budget.create({
