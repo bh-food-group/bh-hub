@@ -2,27 +2,44 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { prisma, resetPool } = await import('./lib/core/prisma');
 
-    // Warm TCP connections with lightweight SELECT 1.
-    // Capped at 5s — if Supabase is slow at startup, don't block the instance.
+    // Phase 1: warm TCP connections to PgBouncer (pg.Pool → PgBouncer path).
+    // Phase 2: warm PgBouncer → PostgreSQL server connections with real table queries.
     //
-    // IMPORTANT: Do NOT run dashboard cache warmup here.
-    // Multiple Vercel instances start simultaneously (scale-out / deployment),
-    // and each would run the same 8-location × 5-query warmup in parallel,
-    // saturating Supabase PgBouncer → 6-8s query waits → OOM.
-    // The 5-min in-memory caches warm themselves on first use instead.
+    // Why both phases?
+    //   SELECT 1 warms the pg.Pool→PgBouncer TCP connection, but in PgBouncer
+    //   transaction mode the PostgreSQL server connection is released immediately
+    //   after each transaction. If Next.js route compilation takes 2-3s before
+    //   the first real query, the server connection may expire → first table
+    //   query takes 3-5s to re-establish.
+    //
+    //   Real table queries keep PgBouncer's server connection pool warm so
+    //   Phase 1 (location-cards) completes in ~100ms not 3-5s.
+    //
+    // Scale-out safety:
+    //   3 queries × N simultaneous Vercel instances.
+    //   N is typically 1-3 on startup (not a burst), so ≤9 concurrent queries —
+    //   well within Supabase's connection limits. This is safe unlike the old
+    //   8-location × 5-query warmup that caused PgBouncer saturation → OOM.
     let done = false;
     const timer = setTimeout(() => {
       if (!done) {
         console.warn('[instrumentation] DB connection warmup timed out — resetting pool');
         resetPool();
       }
-    }, 5_000);
+    }, 8_000);
     try {
+      // Phase 1: TCP + basic connectivity
       await Promise.all(
         Array.from({ length: 3 }, () =>
           (prisma.$queryRaw`SELECT 1` as Promise<unknown>).catch(() => {}),
         ),
       );
+      // Phase 2: real dashboard table queries to warm PgBouncer server connections
+      await Promise.all([
+        prisma.budget.findFirst({ select: { id: true } }).catch(() => {}),
+        prisma.laborTarget.findFirst({ select: { id: true } }).catch(() => {}),
+        prisma.revenueMonthTarget.findFirst({ select: { id: true } }).catch(() => {}),
+      ]);
     } finally {
       done = true;
       clearTimeout(timer);
