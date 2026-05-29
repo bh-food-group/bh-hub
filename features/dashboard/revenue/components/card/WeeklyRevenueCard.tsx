@@ -89,6 +89,7 @@ export default function WeeklyRevenueCard({
     if (!initialData) {
       void load(initialWeekOffset);
     }
+    return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

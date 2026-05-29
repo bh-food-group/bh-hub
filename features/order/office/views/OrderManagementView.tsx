@@ -40,12 +40,8 @@ import {
   OfficeTableSplitView,
   type OfficeTableFilterOption,
 } from '../components/OfficeTableSplitView';
-import { findSupplierKeyForPurchaseOrderId } from '../utils/find-supplier-key-for-po';
 import { RefundReplacementView } from '../components/RefundReplacementView';
-import type {
-  OfficeTableViewPoRow,
-  OfficeTableViewShopifyRow,
-} from '../types/office-table-view';
+import { findSupplierKeyForPurchaseOrderId } from '../utils/find-supplier-key-for-po';
 import type {
   SupplierKey,
   SupplierEntry,
@@ -55,11 +51,9 @@ import type {
   PoPanelMeta,
   ViewData,
   OfficePurchaseOrderBlock,
-  PoLineItemView,
   SidebarCustomerGroup,
   Period,
   ShopifyOrderDraft,
-  PurchaseOrderStatus,
 } from '../types';
 import type { CreatePoPayload, EditPoFields } from '../components/MetaPanel';
 import type { SeparatePoPayload } from '../types';
@@ -78,44 +72,13 @@ import {
   supplierRowHasOpenDeliveryPo,
   supplierRowHasPendingPo,
 } from '../utils/po-fulfillment-for-tab';
-import {
-  mergeViewDataWithOptimisticPoCreates,
-  mergeViewDataWithOptimisticPoDeletes,
-  patchSupplierEntryAfterPoCreate,
-  patchSupplierEntryAfterPoDelete,
-} from '../utils/merge-optimistic-po-create';
-import { mergeViewDataWithOptimisticEmailSent } from '../utils/merge-view-data-optimistic-email-sent';
-import { mergeViewDataWithOptimisticEmailWaived } from '../utils/merge-view-data-optimistic-email-waived';
-import { mergeViewDataWithOptimisticPoHubStatus } from '../utils/merge-view-data-optimistic-po-hub-status';
-import {
-  mergeViewDataWithOptimisticPoPanelEdits,
-  panelPatchFromEditPoFields,
-  type OptimisticPoPanelEditPatch,
-} from '../utils/merge-view-data-optimistic-po-panel-edit';
 import { filterInboxDraftsForDisplay } from '../utils/filter-inbox-drafts-for-display';
-import { buildPoPdfInput, openPoPdfPrint } from '../utils/purchase-order-pdf';
 import { CreateShopifyOrderDialog } from '../components/CreateShopifyOrderDialog';
+import { useOptimisticOrderState } from '../hooks/useOptimisticOrderState';
+import { usePoMutations } from '../hooks/usePoMutations';
 
-/**
- * PO Created tab: max expected-date preset chips beside “All” in the bar (4).
- * With “All” + “More…” the row shows at most 6 buttons; older dates go to More.
- */
 const MAX_EXPECTED_DATE_CHIPS = 4;
-
-/** When creating a PO from office drafts, default supplier ref from the line SKU. */
-function supplierRefFromSku(sku: string | null | undefined): string | null {
-  const t = sku?.trim();
-  return t ? t : null;
-}
-
-/** Sidebar (non-Inbox): expected-date sections per “page” of dates. */
 const EXPECTED_DATE_SIDEBAR_PAGE_SIZE = 5;
-
-/**
- * Safety cap for lazy line-item fetch (slim `/line-items` API — not the full PO).
- * Prevents an indefinite spinner if the connection stalls; normal loads stay well under this.
- */
-const LAZY_PO_LINE_ITEMS_FETCH_MS = 12_000;
 
 /** Vancouver `YYYY-MM-DD` from each without-PO draft (period chips vs `latestOrderedAt`). */
 function shopifyDraftOrderedDaysForKey(
@@ -135,64 +98,6 @@ function shopifyDraftOrderedDaysForKey(
   return days;
 }
 
-/** Merge server `viewDataMap` with pending archive/unarchive so list + chips update before refresh. */
-function mergeViewDataWithOptimisticDraftArchive(
-  viewDataMap: Record<string, ViewData>,
-  optimisticArchived: ReadonlySet<string>,
-  optimisticUnarchived: ReadonlySet<string>,
-): Record<string, ViewData> {
-  if (optimisticArchived.size === 0 && optimisticUnarchived.size === 0) {
-    return viewDataMap;
-  }
-  const stamp = new Date().toISOString();
-  const patchDraft = (d: ShopifyOrderDraft): ShopifyOrderDraft => {
-    const serverArchived = d.archivedAt ?? null;
-    let archivedAt = serverArchived;
-    if (optimisticUnarchived.has(d.id)) archivedAt = null;
-    else if (optimisticArchived.has(d.id)) archivedAt = stamp;
-    if (archivedAt === serverArchived) return d;
-    return { ...d, archivedAt };
-  };
-  let anyChange = false;
-  const out: Record<string, ViewData> = { ...viewDataMap };
-  for (const key of Object.keys(viewDataMap)) {
-    const vd = viewDataMap[key];
-    const drafts =
-      vd.type === 'pre' ? vd.shopifyOrderDrafts : (vd.shopifyOrderDrafts ?? []);
-    if (!drafts.length) continue;
-    const next = drafts.map(patchDraft);
-    if (!next.some((d, i) => d !== drafts[i])) continue;
-    anyChange = true;
-    out[key] =
-      vd.type === 'pre'
-        ? { ...vd, shopifyOrderDrafts: next }
-        : { ...vd, shopifyOrderDrafts: next };
-  }
-  return anyChange ? out : viewDataMap;
-}
-
-function mergeViewDataWithLazyLineItems(
-  viewDataMap: Record<SupplierKey, ViewData>,
-  lazyItems: Record<string, PoLineItemView[]>,
-): Record<SupplierKey, ViewData> {
-  if (Object.keys(lazyItems).length === 0) return viewDataMap;
-  let any = false;
-  const out: Record<SupplierKey, ViewData> = { ...viewDataMap };
-  for (const [key, vd] of Object.entries(viewDataMap)) {
-    if (vd.type !== 'post') continue;
-    let changed = false;
-    const nextPos = vd.purchaseOrders.map((po) => {
-      const items = lazyItems[po.id];
-      if (!items || po.lineItems.length > 0) return po;
-      changed = true;
-      return { ...po, lineItems: items };
-    });
-    if (!changed) continue;
-    any = true;
-    out[key] = { ...vd, purchaseOrders: nextPos };
-  }
-  return any ? out : viewDataMap;
-}
 
 export type OrderManagementViewProps = {
   /** When true, office can create Shopify orders and use Admin search APIs (`SHOPIFY_*` env). */
@@ -206,10 +111,6 @@ export type OrderManagementViewProps = {
   statusTabCounts: Record<StatusTab, number>;
   defaultActiveKey: string | null;
   periods: Period[];
-  tableViewShopifyRows: OfficeTableViewShopifyRow[];
-  tableViewPoRows: OfficeTableViewPoRow[];
-  tableViewShopifyTotal: number;
-  tableViewPoTotal: number;
 };
 
 export function OrderManagementView({
@@ -222,10 +123,6 @@ export function OrderManagementView({
   statusTabCounts: _statusTabCounts,
   defaultActiveKey,
   periods,
-  tableViewShopifyRows,
-  tableViewPoRows,
-  tableViewShopifyTotal,
-  tableViewPoTotal,
 }: OrderManagementViewProps) {
   void _statusTabCounts;
   const [createShopifyOrderOpen, setCreateShopifyOrderOpen] = useState(false);
@@ -289,165 +186,18 @@ export function OrderManagementView({
   const [draftPoNumber, setDraftPoNumber] = useState('');
   const [poNumberIsManual, setPoNumberIsManual] = useState(false);
 
-  const [optimisticArchivedOrderIds, setOptimisticArchivedOrderIds] = useState(
-    () => new Set<string>(),
-  );
-  const [optimisticUnarchivedOrderIds, setOptimisticUnarchivedOrderIds] =
-    useState(() => new Set<string>());
+  const pendingPoNavigationRef = useRef<{ supplierKey: SupplierKey; poId: string } | null>(null);
+  const pendingNewPoForPoCreatedTabRef = useRef<{ supplierKey: SupplierKey; poId: string } | null>(null);
 
-  const [optimisticPoPatchesByKey, setOptimisticPoPatchesByKey] = useState<
-    Partial<
-      Record<
-        SupplierKey,
-        { newBlock: OfficePurchaseOrderBlock; removedDraftIds: string[] }
-      >
-    >
-  >({});
-
-  /** Alert row → tab switch: sidebar effect applies key + PO on next run (avoids Inbox forcing drafts). */
-  const pendingPoNavigationRef = useRef<{
-    supplierKey: SupplierKey;
-    poId: string;
-  } | null>(null);
-
-  /**
-   * After creating a PO from Inbox, `selectedPoBlockId` is forced to `__drafts__` while drafts remain.
-   * When the user opens the “PO created” tab, pick this PO instead of the default bucket’s first row.
-   */
-  const pendingNewPoForPoCreatedTabRef = useRef<{
-    supplierKey: SupplierKey;
-    poId: string;
-  } | null>(null);
-
-  const [optimisticEmailSentAtByPoId, setOptimisticEmailSentAtByPoId] =
-    useState<Record<string, string>>({});
-  const [optimisticEmailWaivedAtByPoId, setOptimisticEmailWaivedAtByPoId] =
-    useState<Record<string, string>>({});
-  const [optimisticEmailWaivedClearPoIds, setOptimisticEmailWaivedClearPoIds] =
-    useState<Record<string, true>>({});
-
-  /** Hub PO status (`pending` / `unfulfilled`) until PUT completes and data refreshes. */
-  const [optimisticPoHubStatusByPoId, setOptimisticPoHubStatusByPoId] =
-    useState<Record<string, PurchaseOrderStatus>>({});
-
-  /** `panelMeta` fields saved via MetaPanel PUT until server props refresh. */
-  const [optimisticPoPanelEditByPoId, setOptimisticPoPanelEditByPoId] =
-    useState<Record<string, OptimisticPoPanelEditPatch>>({});
-
-  const [
-    optimisticDeletedPurchaseOrderIds,
-    setOptimisticDeletedPurchaseOrderIds,
-  ] = useState(() => new Set<string>());
-
-  const [lazyPoLineItems, setLazyPoLineItems] = useState<
-    Record<string, PoLineItemView[]>
-  >({});
-  const [lazyPoLineItemsFetchFailed, setLazyPoLineItemsFetchFailed] = useState<
-    Record<string, true>
-  >({});
-  const fetchedPoIdsRef = useRef(new Set<string>());
-  const [lineItemRetryCount, setLineItemRetryCount] = useState(0);
-
-  useEffect(() => {
-    setOptimisticArchivedOrderIds(new Set());
-    setOptimisticUnarchivedOrderIds(new Set());
-    setOptimisticPoPatchesByKey({});
-    setOptimisticEmailSentAtByPoId({});
-    setOptimisticEmailWaivedAtByPoId({});
-    setOptimisticEmailWaivedClearPoIds({});
-    setOptimisticPoHubStatusByPoId({});
-    setOptimisticPoPanelEditByPoId({});
-    setOptimisticDeletedPurchaseOrderIds(new Set());
-    setLazyPoLineItems({});
-    setLazyPoLineItemsFetchFailed({});
-    fetchedPoIdsRef.current.clear();
-  }, [viewDataMap]);
-
-  const viewDataAfterDraftArchive = useMemo(
-    () =>
-      mergeViewDataWithOptimisticDraftArchive(
-        viewDataMap,
-        optimisticArchivedOrderIds,
-        optimisticUnarchivedOrderIds,
-      ),
-    [viewDataMap, optimisticArchivedOrderIds, optimisticUnarchivedOrderIds],
-  );
-
-  const supplierCompanyByKey = useMemo(() => {
-    const m: Record<SupplierKey, string> = {};
-    for (const [k, e] of Object.entries(states)) {
-      if (e) m[k as SupplierKey] = e.supplierCompany;
-    }
-    return m;
-  }, [states]);
-
-  const optimisticPoPatchSets = useMemo(() => {
-    const out: Partial<
-      Record<
-        SupplierKey,
-        {
-          newBlock: OfficePurchaseOrderBlock;
-          removedDraftIds: ReadonlySet<string>;
-        }
-      >
-    > = {};
-    for (const [k, v] of Object.entries(optimisticPoPatchesByKey)) {
-      if (!v) continue;
-      out[k as SupplierKey] = {
-        newBlock: v.newBlock,
-        removedDraftIds: new Set(v.removedDraftIds),
-      };
-    }
-    return out;
-  }, [optimisticPoPatchesByKey]);
-
-  const patchedViewDataMap = useMemo(() => {
-    const afterPoCreates = mergeViewDataWithOptimisticPoCreates(
-      viewDataAfterDraftArchive,
-      optimisticPoPatchSets,
-      supplierCompanyByKey,
-    );
-    const afterDeletes = mergeViewDataWithOptimisticPoDeletes(
-      afterPoCreates,
-      optimisticDeletedPurchaseOrderIds,
-      supplierCompanyByKey,
-    );
-    const afterEmailSent = mergeViewDataWithOptimisticEmailSent(
-      afterDeletes,
-      optimisticEmailSentAtByPoId,
-    );
-    const waivedClearSet = new Set(
-      Object.keys(optimisticEmailWaivedClearPoIds),
-    );
-    const afterEmailWaived = mergeViewDataWithOptimisticEmailWaived(
-      afterEmailSent,
-      optimisticEmailWaivedAtByPoId,
-      waivedClearSet,
-    );
-    const afterPoHubStatus = mergeViewDataWithOptimisticPoHubStatus(
-      afterEmailWaived,
-      optimisticPoHubStatusByPoId,
-    );
-    const afterPoPanelEdit = mergeViewDataWithOptimisticPoPanelEdits(
-      afterPoHubStatus,
-      optimisticPoPanelEditByPoId,
-    );
-    return mergeViewDataWithLazyLineItems(afterPoPanelEdit, lazyPoLineItems);
-  }, [
-    viewDataAfterDraftArchive,
-    optimisticPoPatchSets,
-    supplierCompanyByKey,
-    optimisticDeletedPurchaseOrderIds,
-    optimisticEmailSentAtByPoId,
-    optimisticEmailWaivedAtByPoId,
-    optimisticEmailWaivedClearPoIds,
-    optimisticPoHubStatusByPoId,
-    optimisticPoPanelEditByPoId,
-    lazyPoLineItems,
-  ]);
-
-  const patchedViewDataMapRef = useRef(patchedViewDataMap);
-  patchedViewDataMapRef.current = patchedViewDataMap;
+  // ── Optimistic state + patchedViewDataMap + lazy line-item fetch ──
+  const {
+    patchedViewDataMap,
+    patchedViewDataMapRef,
+    optimisticArchivedOrderIds,
+    optimisticUnarchivedOrderIds,
+    lazyPoLineItemsFetchFailed,
+    actions: optimisticActions,
+  } = useOptimisticOrderState(viewDataMap, states, selectedPoBlockId, activeKey);
 
   const openPoFromTable = useCallback(
     async (poId: string) => {
@@ -481,219 +231,61 @@ export function OrderManagementView({
     [patchedViewDataMap, states],
   );
 
-  useEffect(() => {
-    if (
-      !selectedPoBlockId ||
-      selectedPoBlockId === '__drafts__' ||
-      selectedPoBlockId === 'new'
-    )
-      return;
-    if (fetchedPoIdsRef.current.has(selectedPoBlockId)) return;
 
-    const vd = patchedViewDataMapRef.current[activeKey];
-    if (!vd || vd.type !== 'post') return;
-    const block = vd.purchaseOrders.find((p) => p.id === selectedPoBlockId);
-    if (
-      !block ||
-      block.lineItems.length > 0 ||
-      !block.panelMeta?.fulfillTotalCount
-    )
-      return;
+  // Refs for values computed after the hook (currentDrafts and effectivePoNumber depend on
+  // patchedViewDataMap which comes from useOptimisticOrderState above).
+  const currentDraftsRef = useRef<ShopifyOrderDraft[]>([]);
+  const effectivePoNumberRef = useRef('');
 
-    fetchedPoIdsRef.current.add(selectedPoBlockId);
-    const poIdToFetch = selectedPoBlockId;
-
-    setLazyPoLineItemsFetchFailed((prev) => {
-      const next = { ...prev };
-      delete next[poIdToFetch];
-      return next;
-    });
-
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), LAZY_PO_LINE_ITEMS_FETCH_MS);
-    let cancelled = false;
-
-    fetch(`/api/order/purchase-orders/${poIdToFetch}/line-items`, {
-      signal: ac.signal,
-    })
-      .then((r) =>
-        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
-      )
-      .then((data: { lineItems?: PoLineItemView[] }) => {
-        if (cancelled) return;
-        const lines = data.lineItems;
-        if (Array.isArray(lines)) {
-          setLazyPoLineItems((prev) => ({
-            ...prev,
-            [poIdToFetch]: lines,
-          }));
-          setLazyPoLineItemsFetchFailed((prev) => {
-            const next = { ...prev };
-            delete next[poIdToFetch];
-            return next;
-          });
-        } else {
-          fetchedPoIdsRef.current.delete(poIdToFetch);
-          setLazyPoLineItemsFetchFailed((prev) => ({
-            ...prev,
-            [poIdToFetch]: true,
-          }));
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        fetchedPoIdsRef.current.delete(poIdToFetch);
-        setLazyPoLineItemsFetchFailed((prev) => ({
-          ...prev,
-          [poIdToFetch]: true,
-        }));
-      })
-      .finally(() => {
-        clearTimeout(t);
-      });
-
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-      ac.abort();
-      fetchedPoIdsRef.current.delete(poIdToFetch);
-    };
-    // Re-run when server `viewDataMap` refreshes (reset clears lazy state) or when
-    // `lazyPoLineItems` changes so we do not skip refetch after a clear vs stale ref.
-  }, [
+  // ── Mutation handlers (PO create/edit/delete, archive, email, etc.) ──
+  const {
+    handleOptimisticPoEmailSent,
+    handleReplyReceivedChange,
+    handleRetryLineItemFetch: _handleRetryLineItemFetch,
+    handlePoEmailDeliveryWaivedChange,
+    handleCreatePo,
+    handleSeparatePo,
+    handleEditPo,
+    handleDeletePo,
+    handleUnarchive,
+    handleArchiveSupplierRow,
+    handleArchivePurchaseOrder,
+    handleUnarchiveShopifyOrder,
+    handleDeleteReplacementOrder,
+    handleAlertStripNavigate,
+    handleOfficePendingOrderStripNavigate,
+  } = usePoMutations({
+    states,
+    setStates,
+    patchedViewDataMap,
     viewDataMap,
-    selectedPoBlockId,
     activeKey,
-    lineItemRetryCount,
-    lazyPoLineItems,
-  ]);
-
-  const handleReplyReceivedChange = useCallback(() => {
-    router.refresh();
-  }, [router]);
-
+    activeStatusTab,
+    showArchived,
+    currentDraftsRef,
+    draftInclusions,
+    draftLineNotes,
+    effectivePoNumberRef,
+    customerGroups,
+    actions: optimisticActions,
+    pendingPoNavigationRef,
+    pendingNewPoForPoCreatedTabRef,
+    setActiveKey,
+    setActiveStatusTab,
+    setActivePeriod,
+    setMainPanel,
+    setShowArchived,
+    setSelectedPoBlockId,
+    router,
+  });
   const handleRetryLineItemFetch = useCallback(() => {
-    if (!selectedPoBlockId) return;
-    fetchedPoIdsRef.current.delete(selectedPoBlockId);
-    setLazyPoLineItemsFetchFailed((prev) => {
-      const next = { ...prev };
-      delete next[selectedPoBlockId];
-      return next;
-    });
-    setLineItemRetryCount((c) => c + 1);
-  }, [selectedPoBlockId]);
-
-  const handleOptimisticPoEmailSent = useCallback((poId: string) => {
-    setOptimisticEmailSentAtByPoId((prev) => ({
-      ...prev,
-      [poId]: new Date().toISOString(),
-    }));
-    setOptimisticEmailWaivedAtByPoId((prev) => {
-      const next = { ...prev };
-      delete next[poId];
-      return next;
-    });
-    setOptimisticEmailWaivedClearPoIds((prev) => {
-      const next = { ...prev };
-      delete next[poId];
-      return next;
-    });
-  }, []);
-
-  const handlePoEmailDeliveryWaivedChange = useCallback(
-    async (poId: string, waived: boolean) => {
-      try {
-        const res = await fetch(`/api/order/purchase-orders/${poId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emailDeliveryWaived: waived }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          toast.error(
-            typeof body?.error === 'string' ? body.error : 'Could not update',
-          );
-          return;
-        }
-        if (waived) {
-          setOptimisticEmailWaivedClearPoIds((prev) => {
-            const next = { ...prev };
-            delete next[poId];
-            return next;
-          });
-          setOptimisticEmailWaivedAtByPoId((prev) => ({
-            ...prev,
-            [poId]: new Date().toISOString(),
-          }));
-          toast.success('Reminder dismissed — not sending email for this PO.');
-        } else {
-          setOptimisticEmailWaivedAtByPoId((prev) => {
-            const next = { ...prev };
-            delete next[poId];
-            return next;
-          });
-          setOptimisticEmailWaivedClearPoIds((prev) => ({
-            ...prev,
-            [poId]: true,
-          }));
-          toast.success('Send reminder restored for this PO.');
-        }
-        router.refresh();
-      } catch {
-        toast.error('Network error');
-      }
-    },
-    [router],
-  );
-
-  /** After PO create: quick Print without leaving Inbox (send email stays in Meta / order panel). */
-  const showPoCreatedFollowUpToast = useCallback(
-    (
-      block: OfficePurchaseOrderBlock,
-      rowEntry: SupplierEntry,
-      supplierKey: SupplierKey,
-    ) => {
-      const custKey = supplierKey.split('::')[0] ?? '';
-      const group = customerGroups.find((c) => c.id === custKey);
-      const printHeadline =
-        group?.company?.trim() || group?.name?.trim() || null;
-
-      const doPrint = () => {
-        const input = buildPoPdfInput({
-          block,
-          supplierCompany: rowEntry.supplierCompany,
-          customerHeadline: printHeadline,
-          fallbackBillingAddress: group?.defaultBillingAddress ?? null,
-          fallbackShippingAddress: group?.defaultShippingAddress ?? null,
-        });
-        if (input) void openPoPdfPrint(input);
-      };
-
-      const doViewPo = () => {
-        setMainPanel('grouped');
-        pendingNewPoForPoCreatedTabRef.current = {
-          supplierKey,
-          poId: block.id,
-        };
-        setActiveStatusTab('po_created');
-        setActiveKey(supplierKey);
-        setSelectedPoBlockId(block.id);
-      };
-
-      toast.success(`PO #${block.poNumber} created`, {
-        cancel: { label: 'View PO', onClick: doViewPo },
-        action: { label: 'Print PO', onClick: doPrint },
-      });
-    },
-    [customerGroups],
-  );
+    _handleRetryLineItemFetch(selectedPoBlockId);
+  }, [_handleRetryLineItemFetch, selectedPoBlockId]);
 
   const tableCustomerFilterOptions = useMemo(
     () =>
       customerGroups
-        .filter(
-          (g) => g.id !== '__unknown_customer__' && !g.id.startsWith('email::'),
-        )
+        .filter((g) => g.id !== '__unknown_customer__' && !g.id.startsWith('email::'))
         .map((g) => ({ id: g.id, label: g.name }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [customerGroups],
@@ -704,14 +296,11 @@ export function OrderManagementView({
     for (const g of customerGroups) {
       for (const s of g.suppliers) {
         const supId = s.key.split('::')[1] ?? '';
-        if (!supId || supId === 'without-po' || supId === '__unassigned__')
-          continue;
+        if (!supId || supId === 'without-po' || supId === '__unassigned__') continue;
         if (!byId.has(supId)) byId.set(supId, s.name);
       }
     }
-    return [...byId.entries()]
-      .map(([id, label]) => ({ id, label }))
-      .sort((a, b) => a.label.localeCompare(b.label));
+    return [...byId.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
   }, [customerGroups]);
 
   const tableSupplierGroupFilterOptions = useMemo<OfficeTableFilterOption[]>(
@@ -723,26 +312,14 @@ export function OrderManagementView({
   );
 
   const computedCounts = useMemo(() => {
-    const counts = {
-      without_po: 0,
-      po_pending: 0,
-      po_created: 0,
-      fulfilled: 0,
-      completed: 0,
-      archived: 0,
-    };
+    const counts = { without_po: 0, po_pending: 0, po_created: 0, fulfilled: 0, completed: 0, archived: 0 };
     for (const [key, e] of Object.entries(states)) {
-      if (e.isArchived) {
-        counts.archived++;
-        continue;
-      }
+      if (e.isArchived) { counts.archived++; continue; }
       if (e.withoutPoDraftCount > 0) counts.without_po++;
       const vd = patchedViewDataMap[key];
       if (supplierRowHasPendingPo(vd)) counts.po_pending++;
       if (e.poCreated && supplierRowHasOpenDeliveryPo(vd)) counts.po_created++;
-      if (e.poCreated && supplierRowHasFulfilledListPo(vd) && !e.allCompleted) {
-        counts.fulfilled++;
-      }
+      if (e.poCreated && supplierRowHasFulfilledListPo(vd) && !e.allCompleted) counts.fulfilled++;
       if (e.allCompleted) counts.completed++;
     }
     return counts;
@@ -751,16 +328,8 @@ export function OrderManagementView({
   const statusTabs = useMemo(() => {
     const all: { id: StatusTab; label: string; count: number }[] = [
       { id: 'without_po', label: 'Inbox', count: computedCounts.without_po },
-      {
-        id: 'po_pending',
-        label: 'PO pending',
-        count: computedCounts.po_pending,
-      },
-      {
-        id: 'po_created',
-        label: 'PO created',
-        count: computedCounts.po_created,
-      },
+      { id: 'po_pending', label: 'PO pending', count: computedCounts.po_pending },
+      { id: 'po_created', label: 'PO created', count: computedCounts.po_created },
       { id: 'fulfilled', label: 'Fulfilled', count: computedCounts.fulfilled },
     ];
     return all.filter((t) => t.id !== 'po_pending' || t.count > 0);
@@ -773,14 +342,15 @@ export function OrderManagementView({
     const list =
       entryLocal?.poCreated && raw.type === 'pre'
         ? raw.shopifyOrderDrafts
-        : raw.type === 'pre'
-          ? raw.shopifyOrderDrafts
-          : (raw.shopifyOrderDrafts ?? []);
+        : raw.type === 'pre' ? raw.shopifyOrderDrafts : (raw.shopifyOrderDrafts ?? []);
     const open = showArchived ? list : list.filter((d) => !d.archivedAt);
     if (activeStatusTab !== 'without_po') return open;
     const pos = raw.type === 'post' ? raw.purchaseOrders : undefined;
     return filterInboxDraftsForDisplay(open, pos);
   }, [patchedViewDataMap, activeKey, showArchived, activeStatusTab, states]);
+
+  // Keep refs in sync so usePoMutations callbacks always read the latest values
+  currentDraftsRef.current = currentDrafts;
 
   const metaInboxShopifyOrderIds = useMemo(
     () => currentDrafts.filter((d) => !d.archivedAt).map((d) => d.id),
@@ -788,26 +358,9 @@ export function OrderManagementView({
   );
 
   const isReplacementOrderEntry = useMemo(
-    () =>
-      currentDrafts.length > 0 &&
-      currentDrafts.every((d) => d.isReplacementOrder),
+    () => currentDrafts.length > 0 && currentDrafts.every((d) => d.isReplacementOrder),
     [currentDrafts],
   );
-
-  const handleDeleteReplacementOrder = useCallback(async () => {
-    const draft = currentDrafts.find((d) => d.isReplacementOrder);
-    if (!draft) return;
-    const res = await fetch(`/api/order/replacement-orders/${draft.id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      toast.error(body.error ?? 'Failed to delete replacement order');
-      return;
-    }
-    toast.success('Replacement order deleted');
-    router.refresh();
-  }, [currentDrafts, router]);
 
   useEffect(() => {
     const inc: Record<string, boolean[]> = {};
@@ -828,23 +381,15 @@ export function OrderManagementView({
       return inc ? inc.some(Boolean) : d.lineItems.some((li) => li.includeInPo);
     });
     if (included.length === 0) return '';
-
-    // Pick the order with the most included line items
     const topOrder = [...included].sort((a, b) => {
-      const aCount = (
-        draftInclusions[a.id] ?? a.lineItems.map((li) => li.includeInPo)
-      ).filter(Boolean).length;
-      const bCount = (
-        draftInclusions[b.id] ?? b.lineItems.map((li) => li.includeInPo)
-      ).filter(Boolean).length;
+      const aCount = (draftInclusions[a.id] ?? a.lineItems.map((li) => li.includeInPo)).filter(Boolean).length;
+      const bCount = (draftInclusions[b.id] ?? b.lineItems.map((li) => li.includeInPo)).filter(Boolean).length;
       return bCount - aCount;
     })[0];
-
     const custKey = activeKey.split('::')[0] ?? '';
     const custGroup = customerGroups.find((g) => g.id === custKey);
     const entry = states[activeKey];
     if (!custGroup || !entry) return '';
-
     return formatOfficeDefaultPoNumber({
       shopifyOrderNumber: topOrder.orderNumber,
       customerSegment: officeInboxCustomerPoSegment(custGroup),
@@ -852,8 +397,8 @@ export function OrderManagementView({
     });
   }, [currentDrafts, draftInclusions, activeKey, customerGroups, states]);
 
-  const effectivePoNumber =
-    poNumberIsManual && draftPoNumber ? draftPoNumber : autoPoNumber;
+  const effectivePoNumber = poNumberIsManual && draftPoNumber ? draftPoNumber : autoPoNumber;
+  effectivePoNumberRef.current = effectivePoNumber;
 
   const handleToggleInclude = useCallback(
     (orderId: string, itemIdx: number) => {
@@ -866,14 +411,11 @@ export function OrderManagementView({
     [],
   );
 
-  /** Inbox: every line on every visible draft order → include / exclude for PO create. */
   const handleSetAllLineIncludes = useCallback(
     (include: boolean) => {
       setDraftInclusions((prev) => {
         const next = { ...prev };
-        for (const d of currentDrafts) {
-          next[d.id] = d.lineItems.map(() => include);
-        }
+        for (const d of currentDrafts) next[d.id] = d.lineItems.map(() => include);
         return next;
       });
     },
@@ -900,745 +442,6 @@ export function OrderManagementView({
     setDraftPoNumber('');
     setPoNumberIsManual(false);
   }, []);
-
-  const handleCreatePo = useCallback(
-    async (
-      key: SupplierKey,
-      payload?: CreatePoPayload,
-    ): Promise<
-      { ok: true } | { ok: false; reason: 'duplicate_po_number' | 'unknown' }
-    > => {
-      const entry = states[key];
-      if (!entry) return { ok: false, reason: 'unknown' };
-
-      const parts = key.split('::');
-      const _supPart = parts.length >= 2 ? parts[1] : null;
-      const supplierId =
-        _supPart && _supPart !== 'without-po' && _supPart !== '__unassigned__'
-          ? _supPart
-          : null;
-
-      const raw = patchedViewDataMap[key];
-      const entryLocal = states[key] ?? null;
-      const drafts =
-        entryLocal?.poCreated && raw?.type === 'pre'
-          ? raw.shopifyOrderDrafts
-          : raw?.type === 'pre'
-            ? raw.shopifyOrderDrafts
-            : (raw?.shopifyOrderDrafts ?? []);
-      const openDrafts = showArchived
-        ? drafts
-        : drafts.filter((d) => !d.archivedAt);
-      const filteredDrafts =
-        activeStatusTab === 'without_po'
-          ? filterInboxDraftsForDisplay(
-              openDrafts,
-              raw?.type === 'post' ? raw.purchaseOrders : undefined,
-            )
-          : openDrafts;
-
-      const includedDrafts = filteredDrafts.filter((d) => {
-        const inc = draftInclusions[d.id];
-        return inc
-          ? inc.some(Boolean)
-          : d.lineItems.some((li) => li.includeInPo);
-      });
-
-      const shopifyOrderRefs = includedDrafts.map((d) => ({
-        orderNumber: d.orderNumber,
-      }));
-
-      const lineItems = includedDrafts.flatMap((d) => {
-        const inc = draftInclusions[d.id];
-        const noteArr = draftLineNotes[d.id];
-        return d.lineItems.flatMap((li, idx) => {
-          if (inc && !inc[idx]) return [];
-          return [
-            {
-              sku: li.sku,
-              productTitle: li.productTitle,
-              variantTitle: li.variantTitle ?? null,
-              quantity: li.quantity,
-              itemPrice: li.itemPrice ? parseFloat(li.itemPrice) : null,
-              supplierRef: supplierRefFromSku(li.sku),
-              isCustom: !li.shopifyVariantGid,
-              shopifyLineItemId: li.shopifyLineItemId ?? null,
-              shopifyLineItemGid: li.shopifyLineItemGid ?? null,
-              shopifyVariantGid: li.shopifyVariantGid ?? null,
-              shopifyProductGid: li.shopifyProductGid ?? null,
-              note: (noteArr?.[idx] ?? '').trim(),
-            },
-          ];
-        });
-      });
-
-      try {
-        const res = await fetch('/api/order/purchase-orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            poNumber: effectivePoNumber || 'AUTO',
-            supplierId,
-            currency: 'CAD',
-            expectedDate: payload?.expectedDate ?? null,
-            comment: payload?.comment ?? null,
-            lineItems,
-            shopifyOrderRefs,
-            shippingAddress: payload?.shippingAddress ?? null,
-            billingAddress: payload?.billingAddress ?? null,
-            billingSameAsShipping: payload?.billingSameAsShipping ?? true,
-            deliveryLocationPresetId:
-              payload?.deliveryLocationPresetId ?? undefined,
-            hubPending: payload?.hubPending === true,
-          }),
-        });
-
-        if (res.ok) {
-          const body = (await res.json().catch(() => null)) as {
-            officeBlock?: OfficePurchaseOrderBlock;
-          } | null;
-          const officeBlock = body?.officeBlock?.id ? body.officeBlock : null;
-          if (officeBlock) {
-            const removedDraftIds = includedDrafts.map((d) => d.id);
-            setOptimisticPoPatchesByKey((prev) => ({
-              ...prev,
-              [key]: { newBlock: officeBlock, removedDraftIds },
-            }));
-            setStates((prev) => {
-              const e = prev[key];
-              if (!e) return prev;
-              return {
-                ...prev,
-                [key]: patchSupplierEntryAfterPoCreate({
-                  entry: e,
-                  newBlock: officeBlock,
-                  removedDraftIds: new Set(removedDraftIds),
-                  removedDrafts: includedDrafts,
-                }),
-              };
-            });
-            setSelectedPoBlockId(officeBlock.id);
-            if (payload?.hubPending === true) {
-              pendingPoNavigationRef.current = {
-                supplierKey: key,
-                poId: officeBlock.id,
-              };
-              setMainPanel('grouped');
-              setShowArchived(false);
-              setActivePeriod('all');
-              setActiveStatusTab('po_pending');
-              toast.success(
-                `PO #${officeBlock.poNumber} created as pending — listed under PO Pending.`,
-              );
-            } else {
-              pendingNewPoForPoCreatedTabRef.current = {
-                supplierKey: key,
-                poId: officeBlock.id,
-              };
-              showPoCreatedFollowUpToast(officeBlock, entry, key);
-            }
-          }
-          router.refresh();
-          return { ok: true };
-        }
-        const body = await res.json().catch(() => null);
-        console.error('Create PO failed:', body?.error ?? res.statusText);
-        if (res.status === 409 && body?.code === 'PO_NUMBER_TAKEN') {
-          return { ok: false, reason: 'duplicate_po_number' };
-        }
-        if (body?.error) toast.error(String(body.error));
-        return { ok: false, reason: 'unknown' };
-      } catch (err) {
-        console.error('Create PO error:', err);
-        return { ok: false, reason: 'unknown' };
-      }
-    },
-    [
-      states,
-      patchedViewDataMap,
-      draftInclusions,
-      draftLineNotes,
-      effectivePoNumber,
-      router,
-      customerGroups,
-      activeStatusTab,
-      showArchived,
-      showPoCreatedFollowUpToast,
-    ],
-  );
-
-  const handleSeparatePo = useCallback(
-    async (payload: SeparatePoPayload) => {
-      const entry = states[activeKey];
-      if (!entry) return;
-
-      const parts = activeKey.split('::');
-      const _supPart = parts.length >= 2 ? parts[1] : null;
-      const supplierId =
-        _supPart && _supPart !== 'without-po' && _supPart !== '__unassigned__'
-          ? _supPart
-          : null;
-
-      const raw = patchedViewDataMap[activeKey];
-      const entryLocalSp = states[activeKey] ?? null;
-      const drafts =
-        entryLocalSp?.poCreated && raw?.type === 'pre'
-          ? raw.shopifyOrderDrafts
-          : raw?.type === 'pre'
-            ? raw.shopifyOrderDrafts
-            : (raw?.shopifyOrderDrafts ?? []);
-      const openDraftsSp = showArchived
-        ? drafts
-        : drafts.filter((d) => !d.archivedAt);
-      const draftPool =
-        activeStatusTab === 'without_po'
-          ? filterInboxDraftsForDisplay(
-              openDraftsSp,
-              raw?.type === 'post' ? raw.purchaseOrders : undefined,
-            )
-          : openDraftsSp;
-      const targetNorm = payload.shopifyOrderNumber.replace(/^#/, '').trim();
-      const matchedDraft = draftPool.find(
-        (d) => d.orderNumber.replace(/^#/, '').trim() === targetNorm,
-      );
-
-      const poNumberForCreate = payload.poNumber.trim()
-        ? payload.poNumber.trim()
-        : 'AUTO';
-
-      try {
-        const res = await fetch('/api/order/purchase-orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            poNumber: poNumberForCreate,
-            supplierId,
-            currency: 'CAD',
-            expectedDate: payload.expectedDate,
-            comment: payload.comment,
-            lineItems: payload.lineItems.map((li) => ({
-              sku: li.sku,
-              productTitle: li.productTitle,
-              variantTitle: li.variantTitle ?? null,
-              quantity: li.quantity,
-              itemPrice: li.itemPrice,
-              supplierRef: supplierRefFromSku(li.sku),
-              isCustom: li.isCustom ?? false,
-              shopifyLineItemId: li.shopifyLineItemId ?? null,
-              shopifyLineItemGid: li.shopifyLineItemGid ?? null,
-              shopifyVariantGid: li.shopifyVariantGid ?? null,
-              shopifyProductGid: li.shopifyProductGid ?? null,
-              note: li.note != null ? String(li.note).trim() : '',
-            })),
-            shopifyOrderRefs: [{ orderNumber: payload.shopifyOrderNumber }],
-            shippingAddress: payload.shippingAddress ?? undefined,
-            billingSameAsShipping: true,
-            deliveryLocationPresetId:
-              payload.deliveryLocationPresetId ?? undefined,
-          }),
-        });
-
-        if (res.ok) {
-          const body = (await res.json().catch(() => null)) as {
-            officeBlock?: OfficePurchaseOrderBlock;
-          } | null;
-          const officeBlock = body?.officeBlock?.id ? body.officeBlock : null;
-          if (officeBlock) {
-            const removedDraftIds = matchedDraft ? [matchedDraft.id] : [];
-            pendingNewPoForPoCreatedTabRef.current = {
-              supplierKey: activeKey,
-              poId: officeBlock.id,
-            };
-            setOptimisticPoPatchesByKey((prev) => ({
-              ...prev,
-              [activeKey]: { newBlock: officeBlock, removedDraftIds },
-            }));
-            setStates((prev) => {
-              const e = prev[activeKey];
-              if (!e) return prev;
-              return {
-                ...prev,
-                [activeKey]: patchSupplierEntryAfterPoCreate({
-                  entry: e,
-                  newBlock: officeBlock,
-                  removedDraftIds: new Set(removedDraftIds),
-                  removedDrafts: matchedDraft ? [matchedDraft] : [],
-                }),
-              };
-            });
-            setSelectedPoBlockId(officeBlock.id);
-            showPoCreatedFollowUpToast(officeBlock, entry, activeKey);
-          }
-          router.refresh();
-          return;
-        }
-        const body = await res.json().catch(() => null);
-        console.error('Separate PO failed:', body?.error ?? res.statusText);
-        if (res.status === 409 && body?.code === 'PO_NUMBER_TAKEN') {
-          toast.error(
-            'This PO number is already in use. Change the PO number in the dialog and try again.',
-          );
-        } else if (body?.error) {
-          toast.error(String(body.error));
-        }
-      } catch (err) {
-        console.error('Separate PO error:', err);
-      }
-    },
-    [
-      states,
-      activeKey,
-      router,
-      patchedViewDataMap,
-      activeStatusTab,
-      showArchived,
-      showPoCreatedFollowUpToast,
-    ],
-  );
-
-  const handleEditPo = useCallback(
-    async (
-      poId: string,
-      fields: EditPoFields,
-    ): Promise<
-      { ok: true } | { ok: false; reason: 'duplicate_po_number' | 'unknown' }
-    > => {
-      const definedFieldKeys = (
-        Object.keys(fields) as (keyof EditPoFields)[]
-      ).filter((k) => fields[k] !== undefined);
-      const isHubStatusOnlyPut =
-        definedFieldKeys.length === 1 &&
-        definedFieldKeys[0] === 'status' &&
-        fields.status != null;
-      const nextHubStatus = isHubStatusOnlyPut ? fields.status! : null;
-
-      if (isHubStatusOnlyPut && nextHubStatus) {
-        setOptimisticPoHubStatusByPoId((prev) => ({
-          ...prev,
-          [poId]: nextHubStatus,
-        }));
-      }
-
-      const panelPatch = isHubStatusOnlyPut
-        ? null
-        : panelPatchFromEditPoFields(fields);
-      if (panelPatch) {
-        setOptimisticPoPanelEditByPoId((prev) => ({
-          ...prev,
-          [poId]: { ...(prev[poId] ?? {}), ...panelPatch },
-        }));
-      }
-
-      const rollbackHubStatusOptimistic = () => {
-        if (!isHubStatusOnlyPut) return;
-        setOptimisticPoHubStatusByPoId((prev) => {
-          const { [poId]: _, ...rest } = prev;
-          return rest;
-        });
-      };
-
-      const rollbackPanelEditOptimistic = () => {
-        if (!panelPatch) return;
-        setOptimisticPoPanelEditByPoId((prev) => {
-          const { [poId]: _, ...rest } = prev;
-          return rest;
-        });
-      };
-
-      try {
-        const res = await fetch(`/api/order/purchase-orders/${poId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(fields),
-        });
-        const body = await res.json().catch(() => null);
-
-        if (res.ok) {
-          if (isHubStatusOnlyPut && nextHubStatus) {
-            toast.success(
-              nextHubStatus === 'pending'
-                ? 'PO marked as pending'
-                : 'PO pending cleared',
-            );
-            if (nextHubStatus === 'pending') {
-              const supplierKey = findSupplierKeyForPurchaseOrderId(
-                patchedViewDataMap,
-                poId,
-              );
-              if (supplierKey) {
-                pendingPoNavigationRef.current = {
-                  supplierKey,
-                  poId,
-                };
-              }
-              setActiveStatusTab((tab) =>
-                tab === 'without_po' || tab === 'inbox' || tab === 'po_created'
-                  ? 'po_pending'
-                  : tab,
-              );
-              setActivePeriod('all');
-            } else if (activeStatusTab === 'po_pending') {
-              const currentVd = patchedViewDataMap[activeKey];
-              const remainingPending =
-                currentVd?.type === 'post'
-                  ? currentVd.purchaseOrders.filter(
-                      (p) =>
-                        p.id !== poId &&
-                        p.id !== 'new' &&
-                        !p.archivedAt &&
-                        p.status === 'pending',
-                    ).length
-                  : 0;
-              if (remainingPending === 0) {
-                setActiveStatusTab('po_created');
-              }
-            }
-          }
-          router.refresh();
-          return { ok: true };
-        }
-
-        rollbackHubStatusOptimistic();
-        rollbackPanelEditOptimistic();
-
-        console.error('Edit PO failed:', body?.error ?? res.statusText);
-        if (res.status === 409 && body?.code === 'PO_NUMBER_TAKEN') {
-          return { ok: false, reason: 'duplicate_po_number' };
-        }
-
-        if (isHubStatusOnlyPut) {
-          toast.error(
-            typeof body?.error === 'string'
-              ? body.error
-              : 'Could not update PO status',
-          );
-        } else if (body?.error) {
-          toast.error(String(body.error));
-        }
-
-        return { ok: false, reason: 'unknown' };
-      } catch (err) {
-        rollbackHubStatusOptimistic();
-        rollbackPanelEditOptimistic();
-        console.error('Edit PO error:', err);
-        if (isHubStatusOnlyPut) {
-          toast.error('Could not update PO status');
-        }
-        return { ok: false, reason: 'unknown' };
-      }
-    },
-    [router, patchedViewDataMap, activeStatusTab, activeKey],
-  );
-
-  const handleDeletePo = useCallback(
-    async (poId: string) => {
-      let supplierKey: SupplierKey | null = null;
-      let deleted: OfficePurchaseOrderBlock | undefined;
-      let entrySnapshot: SupplierEntry | undefined;
-
-      for (const [key, vd] of Object.entries(patchedViewDataMap)) {
-        if (vd.type !== 'post') continue;
-        const b = vd.purchaseOrders.find((p) => p.id === poId);
-        if (b) {
-          supplierKey = key;
-          deleted = b;
-          entrySnapshot = states[key]
-            ? { ...states[key as SupplierKey] }
-            : undefined;
-          break;
-        }
-      }
-
-      const remainingReal = (() => {
-        if (!supplierKey) return [] as OfficePurchaseOrderBlock[];
-        const vd = patchedViewDataMap[supplierKey];
-        if (!vd || vd.type !== 'post') return [];
-        return vd.purchaseOrders.filter((p) => p.id !== poId && p.id !== 'new');
-      })();
-
-      if (supplierKey && deleted && entrySnapshot) {
-        setOptimisticDeletedPurchaseOrderIds((prev) => {
-          const next = new Set(prev);
-          next.add(poId);
-          return next;
-        });
-        setStates((prev) => {
-          const e = prev[supplierKey!];
-          if (!e) return prev;
-          return {
-            ...prev,
-            [supplierKey!]: patchSupplierEntryAfterPoDelete({
-              entry: e,
-              deleted,
-              remainingPoBlocks: remainingReal,
-            }),
-          };
-        });
-        setOptimisticPoPatchesByKey((prev) => {
-          const p = prev[supplierKey!];
-          if (p?.newBlock.id === poId) {
-            const { [supplierKey!]: _, ...rest } = prev;
-            return rest;
-          }
-          return prev;
-        });
-      }
-
-      setOptimisticEmailSentAtByPoId((prev) => {
-        if (!(poId in prev)) return prev;
-        const { [poId]: _, ...rest } = prev;
-        return rest;
-      });
-
-      if (pendingNewPoForPoCreatedTabRef.current?.poId === poId) {
-        pendingNewPoForPoCreatedTabRef.current = null;
-      }
-
-      setSelectedPoBlockId((sel) => (sel === poId ? null : sel));
-
-      const rollbackOptimistic = () => {
-        setOptimisticDeletedPurchaseOrderIds((prev) => {
-          const next = new Set(prev);
-          next.delete(poId);
-          return next;
-        });
-        if (supplierKey && entrySnapshot) {
-          setStates((prev) => ({ ...prev, [supplierKey!]: entrySnapshot }));
-        }
-      };
-
-      try {
-        const res = await fetch(`/api/order/purchase-orders/${poId}`, {
-          method: 'DELETE',
-        });
-        if (res.ok) {
-          router.refresh();
-          return;
-        }
-        rollbackOptimistic();
-        const body = await res.json().catch(() => null);
-        console.error('Delete PO failed:', body?.error ?? res.statusText);
-      } catch (err) {
-        rollbackOptimistic();
-        console.error('Delete PO error:', err);
-      }
-    },
-    [patchedViewDataMap, states, router],
-  );
-
-  const handleUnarchive = useCallback(
-    async (key: SupplierKey) => {
-      const e = states[key];
-      if (!e) return;
-
-      const snapshot = { ...e };
-      const shopifyIds = [...e.archiveShopifyOrderIds];
-
-      const vd = viewDataMap[key];
-      const draftRestoreCount =
-        vd?.type === 'pre'
-          ? vd.shopifyOrderDrafts.length
-          : (vd?.shopifyOrderDrafts?.length ?? 0);
-
-      setOptimisticUnarchivedOrderIds((prev) => {
-        const next = new Set(prev);
-        for (const id of shopifyIds) next.add(id);
-        return next;
-      });
-      setOptimisticArchivedOrderIds((prev) => {
-        const next = new Set(prev);
-        for (const id of shopifyIds) next.delete(id);
-        return next;
-      });
-
-      setStates((prev) => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          isArchived: false,
-          ...(draftRestoreCount > 0
-            ? { withoutPoDraftCount: draftRestoreCount }
-            : {}),
-        },
-      }));
-
-      try {
-        const res = await fetch('/api/order/archive', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            purchaseOrderIds:
-              e.archivePurchaseOrderIds.length > 0
-                ? e.archivePurchaseOrderIds
-                : undefined,
-            shopifyOrderIds:
-              e.archiveShopifyOrderIds.length > 0
-                ? e.archiveShopifyOrderIds
-                : undefined,
-            archive: false,
-          }),
-        });
-        if (!res.ok)
-          throw new Error(await res.text().catch(() => res.statusText));
-        router.refresh();
-      } catch (err) {
-        setStates((prev) => ({ ...prev, [key]: snapshot }));
-        setOptimisticUnarchivedOrderIds((prev) => {
-          const next = new Set(prev);
-          for (const id of shopifyIds) next.delete(id);
-          return next;
-        });
-        console.error('Unarchive error:', err);
-      }
-    },
-    [states, router, viewDataMap],
-  );
-
-  const handleArchiveSupplierRow = useCallback(
-    async (key: SupplierKey) => {
-      const e = states[key];
-      if (!e) return;
-      const confirmed = window.confirm(
-        'Archive this supplier row? Linked Shopify orders and POs are hidden until you turn on “Show archived”.',
-      );
-      if (!confirmed) return;
-
-      const snapshot = { ...e };
-      const shopifyIds = [...e.archiveShopifyOrderIds];
-      const poIds = [...e.archivePurchaseOrderIds];
-
-      setOptimisticArchivedOrderIds((prev) => {
-        const next = new Set(prev);
-        for (const id of shopifyIds) next.add(id);
-        return next;
-      });
-      setOptimisticUnarchivedOrderIds((prev) => {
-        const next = new Set(prev);
-        for (const id of shopifyIds) next.delete(id);
-        return next;
-      });
-
-      setStates((prev) => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          isArchived: true,
-          withoutPoDraftCount: 0,
-        },
-      }));
-
-      try {
-        const res = await fetch('/api/order/archive', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            purchaseOrderIds: poIds.length > 0 ? poIds : undefined,
-            shopifyOrderIds: shopifyIds.length > 0 ? shopifyIds : undefined,
-            archive: true,
-          }),
-        });
-        if (!res.ok)
-          throw new Error(await res.text().catch(() => res.statusText));
-        router.refresh();
-      } catch (err) {
-        setStates((prev) => ({ ...prev, [key]: snapshot }));
-        setOptimisticArchivedOrderIds((prev) => {
-          const next = new Set(prev);
-          for (const id of shopifyIds) next.delete(id);
-          return next;
-        });
-        console.error('Archive supplier row error:', err);
-        toast.error('Could not archive');
-      }
-    },
-    [states, router],
-  );
-
-  const handleArchivePurchaseOrder = useCallback(
-    async (poId: string) => {
-      if (!poId || poId === '__drafts__' || poId === 'new') return;
-      const confirmed = window.confirm(
-        'Archive this PO? It is hidden from open lists until you show archived items.',
-      );
-      if (!confirmed) return;
-      try {
-        const res = await fetch('/api/order/archive', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            purchaseOrderIds: [poId],
-            archive: true,
-          }),
-        });
-        if (!res.ok) {
-          toast.error('Could not archive PO');
-          return;
-        }
-        setSelectedPoBlockId((sel) => (sel === poId ? null : sel));
-        router.refresh();
-      } catch (err) {
-        console.error('Archive PO error:', err);
-        toast.error('Could not archive PO');
-      }
-    },
-    [router],
-  );
-
-  const handleUnarchiveShopifyOrder = useCallback(
-    async (shopifyOrderDbId: string) => {
-      const key = activeKey;
-      const entryBefore = states[key];
-
-      setOptimisticUnarchivedOrderIds((prev) =>
-        new Set(prev).add(shopifyOrderDbId),
-      );
-      setOptimisticArchivedOrderIds((prev) => {
-        const n = new Set(prev);
-        n.delete(shopifyOrderDbId);
-        return n;
-      });
-
-      if (entryBefore) {
-        setStates((prev) => {
-          const e = prev[key];
-          if (!e) return prev;
-          return {
-            ...prev,
-            [key]: {
-              ...e,
-              withoutPoDraftCount: e.withoutPoDraftCount + 1,
-              ...(!e.poCreated ? { isArchived: false } : {}),
-            },
-          };
-        });
-      }
-
-      try {
-        const res = await fetch('/api/order/archive', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            shopifyOrderIds: [shopifyOrderDbId],
-            archive: false,
-          }),
-        });
-        if (!res.ok)
-          throw new Error(await res.text().catch(() => res.statusText));
-        router.refresh();
-      } catch (err) {
-        setOptimisticUnarchivedOrderIds((prev) => {
-          const n = new Set(prev);
-          n.delete(shopifyOrderDbId);
-          return n;
-        });
-        if (entryBefore) {
-          setStates((prev) => ({ ...prev, [key]: { ...entryBefore } }));
-        }
-        console.error('Unarchive Shopify order error:', err);
-      }
-    },
-    [router, activeKey, states],
-  );
 
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -1858,42 +661,6 @@ export function OrderManagementView({
     setCustomFrom('');
     setCustomTo('');
   }, []);
-
-  const handleAlertStripNavigate = useCallback(
-    (it: PoEmailDeliveryAlertItem) => {
-      const entry = states[it.supplierKey];
-      const vd = patchedViewDataMap[it.supplierKey];
-      const po =
-        vd?.type === 'post'
-          ? vd.purchaseOrders.find((p) => p.id === it.purchaseOrderId)
-          : undefined;
-      if (!entry || !po) return;
-      const tab = pickStatusTabForEmailAlertPo({ entry, vd, po });
-      setMainPanel('grouped');
-      pendingPoNavigationRef.current = {
-        supplierKey: it.supplierKey,
-        poId: it.purchaseOrderId,
-      };
-      setShowArchived(false);
-      setActivePeriod('all');
-      setActiveStatusTab(tab);
-    },
-    [states, patchedViewDataMap],
-  );
-
-  const handleOfficePendingOrderStripNavigate = useCallback(
-    (it: OfficePendingOrderAlertItem) => {
-      setMainPanel('grouped');
-      setShowArchived(false);
-      setActivePeriod('all');
-      setActiveStatusTab('po_pending');
-      pendingPoNavigationRef.current = {
-        supplierKey: it.supplierKey,
-        poId: it.purchaseOrderId,
-      };
-    },
-    [],
-  );
 
   useEffect(() => {
     if (activeStatusTab !== 'po_pending') return;
@@ -2911,10 +1678,6 @@ export function OrderManagementView({
                 onRequestCreateShopifyOrder={() =>
                   setCreateShopifyOrderOpen(true)
                 }
-                initialShopifyRows={tableViewShopifyRows}
-                initialPoRows={tableViewPoRows}
-                shopifyTotal={tableViewShopifyTotal}
-                poTotal={tableViewPoTotal}
                 customerFilterOptions={tableCustomerFilterOptions}
                 supplierFilterOptions={tableSupplierFilterOptions}
                 supplierGroupFilterOptions={tableSupplierGroupFilterOptions}

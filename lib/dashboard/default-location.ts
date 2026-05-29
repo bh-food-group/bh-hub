@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/core';
+import { unstable_cache } from 'next/cache';
 
-/** Oldest `showBudget` location, else oldest any location (by `createdAt`). */
-export async function getDefaultDashboardLocationId(): Promise<string | null> {
+async function _getDefaultDashboardLocationId(): Promise<string | null> {
   let location = await prisma.location.findFirst({
     where: { showBudget: true },
     orderBy: { createdAt: 'asc' },
@@ -13,6 +13,13 @@ export async function getDefaultDashboardLocationId(): Promise<string | null> {
   }
   return location?.id ?? null;
 }
+
+/** Oldest `showBudget` location, else oldest any location (by `createdAt`). Cached for 5 min. */
+export const getDefaultDashboardLocationId = unstable_cache(
+  _getDefaultDashboardLocationId,
+  ['default-dashboard-location'],
+  { revalidate: 300 },
+);
 
 /** Rewrite legacy `/dashboard/cost` URLs (e.g. OAuth `returnTo`) to `/dashboard/location/[id]`. */
 export async function mapLegacyDashboardCostPath(path: string): Promise<string> {

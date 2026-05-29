@@ -84,7 +84,9 @@ export default function LocationDashboardCards() {
     // Sequential avoids Supabase connection pool contention: both phases run fetchBaseData
     // (same DB queries). If fired concurrently, phase 2 waits in the pool queue (~3-4s).
     // Phase 1 releases its connections in ~150ms, so phase 2 DB work is uncontested.
-    void fetchPhase(1).then(() => fetchPhase(2));
+    void fetchPhase(1).then(() => {
+      if (!controller.signal.aborted) return fetchPhase(2);
+    });
 
     return () => controller.abort();
   }, [locationId, yearMonth]);

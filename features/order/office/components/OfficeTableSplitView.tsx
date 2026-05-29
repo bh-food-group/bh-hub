@@ -207,10 +207,10 @@ export function OfficeTableSplitView({
   shopifyAdminStoreHandle?: string | null;
   shopifyCreateOrderEnabled?: boolean;
   onRequestCreateShopifyOrder?: () => void;
-  initialShopifyRows: OfficeTableViewShopifyRow[];
-  initialPoRows: OfficeTableViewPoRow[];
-  shopifyTotal: number;
-  poTotal: number;
+  initialShopifyRows?: OfficeTableViewShopifyRow[];
+  initialPoRows?: OfficeTableViewPoRow[];
+  shopifyTotal?: number;
+  poTotal?: number;
   customerFilterOptions: OfficeTableFilterOption[];
   supplierFilterOptions: OfficeTableFilterOption[];
   /** `id` = `SupplierGroup.slug` */
@@ -219,11 +219,11 @@ export function OfficeTableSplitView({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TableTab>('shopify');
-  const [shopifyRows, setShopifyRows] = useState(initialShopifyRows);
-  const [poRows, setPoRows] = useState(initialPoRows);
+  const [shopifyRows, setShopifyRows] = useState<OfficeTableViewShopifyRow[]>(initialShopifyRows ?? []);
+  const [poRows, setPoRows] = useState<OfficeTableViewPoRow[]>(initialPoRows ?? []);
   const [shopifyPage, setShopifyPage] = useState(1);
   const [poPage, setPoPage] = useState(1);
-  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [shopifyLoading, setShopifyLoading] = useState(!initialShopifyRows);
   const [poLoading, setPoLoading] = useState(false);
 
   const [qInput, setQInput] = useState('');
@@ -255,8 +255,8 @@ export function OfficeTableSplitView({
     [debouncedQ, customerId, supplierId, supplierGroupSlug, dateFrom, dateTo],
   );
 
-  const [shopifyDisplayTotal, setShopifyDisplayTotal] = useState(shopifyTotal);
-  const [poDisplayTotal, setPoDisplayTotal] = useState(poTotal);
+  const [shopifyDisplayTotal, setShopifyDisplayTotal] = useState(shopifyTotal ?? 0);
+  const [poDisplayTotal, setPoDisplayTotal] = useState(poTotal ?? 0);
 
   const shopifyRowsRef = useRef(shopifyRows);
   const poRowsRef = useRef(poRows);
@@ -340,18 +340,56 @@ export function OfficeTableSplitView({
     ],
   );
 
+  // Initial fetch when no server-provided data (lazy table view pattern).
   useEffect(() => {
-    if (filtersActive) return;
+    if (initialShopifyRows !== undefined) return;
+    const ac = new AbortController();
+    (async () => {
+      setShopifyLoading(true);
+      try {
+        const qs = new URLSearchParams({ offset: '0', limit: String(OFFICE_TABLE_VIEW_FETCH_LIMIT) });
+        const [shopifyRes, poRes] = await Promise.all([
+          fetch(`/api/shopify/table-view?${qs}`, { signal: ac.signal }),
+          fetch(`/api/order/table-view/po?${qs}`, { signal: ac.signal }),
+        ]);
+        if (ac.signal.aborted) return;
+        type ShopifyBody = { rows?: OfficeTableViewShopifyRow[]; total?: number };
+        type PoBody = { rows?: OfficeTableViewPoRow[]; total?: number };
+        const [shopifyBody, poBody] = await Promise.all([
+          shopifyRes.ok ? shopifyRes.json() as Promise<ShopifyBody> : Promise.resolve<ShopifyBody>({}),
+          poRes.ok ? poRes.json() as Promise<PoBody> : Promise.resolve<PoBody>({}),
+        ]);
+        if (ac.signal.aborted) return;
+        const sRows = shopifyBody.rows ?? [];
+        const pRows = poBody.rows ?? [];
+        const sTotal = shopifyBody.total ?? 0;
+        const pTotal = poBody.total ?? 0;
+        setShopifyRows(sRows);
+        setShopifyDisplayTotal(sTotal);
+        setShopifyNoMore(sRows.length === 0 || sRows.length >= sTotal);
+        setPoRows(pRows);
+        setPoDisplayTotal(pTotal);
+        setPoNoMore(pRows.length === 0 || pRows.length >= pTotal);
+      } finally {
+        if (!ac.signal.aborted) setShopifyLoading(false);
+      }
+    })();
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (filtersActive || initialShopifyRows === undefined) return;
     setShopifyRows(initialShopifyRows);
-    setShopifyDisplayTotal(shopifyTotal);
+    setShopifyDisplayTotal(shopifyTotal ?? 0);
     setShopifyNoMore(false);
     setShopifyPage(1);
   }, [initialShopifyRows, shopifyTotal, filtersActive]);
 
   useEffect(() => {
-    if (filtersActive) return;
+    if (filtersActive || initialPoRows === undefined) return;
     setPoRows(initialPoRows);
-    setPoDisplayTotal(poTotal);
+    setPoDisplayTotal(poTotal ?? 0);
     setPoNoMore(false);
     setPoPage(1);
   }, [initialPoRows, poTotal, filtersActive]);
@@ -782,7 +820,7 @@ export function OfficeTableSplitView({
           )}
         >
           Shopify
-          <TabCount active={tab === 'shopify'} n={shopifyTotal} />
+          <TabCount active={tab === 'shopify'} n={shopifyTotal ?? shopifyDisplayTotal} />
         </Button>
         <Button
           type="button"
@@ -796,7 +834,7 @@ export function OfficeTableSplitView({
           )}
         >
           PO
-          <TabCount active={tab === 'po'} n={poTotal} />
+          <TabCount active={tab === 'po'} n={poTotal ?? poDisplayTotal} />
         </Button>
       </div>
 

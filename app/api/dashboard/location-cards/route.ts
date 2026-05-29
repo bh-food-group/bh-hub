@@ -89,9 +89,42 @@ function timed<T>(label: string, p: Promise<T>): Promise<T> {
 }
 
 type Ctx = { locationId: string; yearMonth: string; userId: string; isOfficeOrAdmin: boolean };
+type BaseDataResult =
+  | { ok: false; status: number; error: string }
+  | { ok: true; noBudget: true; noBudgetReason: string }
+  | {
+      ok: true;
+      noBudget: false;
+      budget: Awaited<ReturnType<typeof getBudgetByLocationAndMonth>> & object;
+      context: QuickBooksApiContext;
+      laborTargetRow: Awaited<ReturnType<typeof getLaborTargetByLocationAndMonth>>;
+      revenueSnapshot: Awaited<ReturnType<typeof getRevenueTargetSnapshot>>;
+      savedRefMonths: Awaited<ReturnType<typeof getRevenueMonthTargetRefMonths>>;
+      initialWeekOffset: number;
+    };
+
+// Short-lived cache: phase 1 and phase 2 fire within ~150ms of each other.
+// Caching for 10s eliminates the duplicate laborTarget/revenueSnapshot/savedRefMonths queries.
+const _g = globalThis as unknown as {
+  _locationCardsBaseCache?: Map<string, { value: BaseDataResult; expiresAt: number }>;
+};
+if (!_g._locationCardsBaseCache) _g._locationCardsBaseCache = new Map();
+const _baseCache = _g._locationCardsBaseCache;
+const BASE_CACHE_TTL_MS = 10_000;
+
+async function fetchBaseData({ locationId, yearMonth, userId }: Ctx): Promise<BaseDataResult> {
+  const cacheKey = `${locationId}:${yearMonth}:${userId}`;
+  const now = Date.now();
+  const hit = _baseCache.get(cacheKey);
+  if (hit && hit.expiresAt > now) return hit.value;
+
+  const result = await fetchBaseDataUncached({ locationId, yearMonth, userId });
+  _baseCache.set(cacheKey, { value: result, expiresAt: now + BASE_CACHE_TTL_MS });
+  return result;
+}
 
 /** Shared DB lookups: location + budget + stage-1 targets. Fast (~100-200ms on warm connection). */
-async function fetchBaseData({ locationId, yearMonth, userId }: Ctx) {
+async function fetchBaseDataUncached({ locationId, yearMonth, userId }: Omit<Ctx, 'isOfficeOrAdmin'>): Promise<BaseDataResult> {
   const context: QuickBooksApiContext = { baseUrl: '', cookie: null };
 
   const [location, budgetOrNull] = await Promise.all([
@@ -99,7 +132,7 @@ async function fetchBaseData({ locationId, yearMonth, userId }: Ctx) {
     timed('budget-db', getBudgetByLocationAndMonth(locationId, yearMonth)),
   ]);
 
-  if (!location) return { ok: false as const, status: 404, error: 'Location not found' };
+  if (!location) return { ok: false, status: 404, error: 'Location not found' };
 
   let budget = budgetOrNull;
   if (!budget) {
@@ -113,7 +146,7 @@ async function fetchBaseData({ locationId, yearMonth, userId }: Ctx) {
     const noBudgetReason = location.startYearMonth != null
       ? `Budget for this location starts from ${location.startYearMonth}.`
       : 'No budget for this month.';
-    return { ok: true as const, noBudget: true as const, noBudgetReason };
+    return { ok: true, noBudget: true, noBudgetReason };
   }
 
   after(() => ensureRevenueTargetForMonth({ locationId, yearMonth }));
@@ -130,9 +163,9 @@ async function fetchBaseData({ locationId, yearMonth, userId }: Ctx) {
   ]);
 
   return {
-    ok: true as const,
-    noBudget: false as const,
-    budget,
+    ok: true,
+    noBudget: false,
+    budget: budget as NonNullable<typeof budget>,
     context,
     laborTargetRow,
     revenueSnapshot,

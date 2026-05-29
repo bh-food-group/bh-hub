@@ -5,11 +5,6 @@ import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import { Suspense } from 'react';
 import { OrderManagementView } from '@/features/order/office/views/OrderManagementView';
-import { OFFICE_TABLE_VIEW_FETCH_LIMIT } from '@/features/order/office/constants/office-table-view';
-import {
-  fetchPurchaseOrdersForOfficeTableView,
-  fetchShopifyOrdersForOfficeTableView,
-} from '@/lib/order/office-table-view-fetch';
 import { buildInboxData } from '@/features/order/office/mappers/build-inbox-data';
 import { buildWeekPeriods } from '@/features/order/office/mappers/periods';
 import {
@@ -72,10 +67,6 @@ async function OfficeInboxContent() {
     unlinkedShopifyOrdersRaw,
     vendorMappings,
     rawLineCounts,
-    tableViewShopifyTotal,
-    tableViewPoTotal,
-    tableViewShopifyRows,
-    tableViewPoRows,
     rawReplacementOrders,
     replacementOrderCountRows,
   ] = await Promise.all([
@@ -177,20 +168,30 @@ async function OfficeInboxContent() {
     prisma.shopifyVendorMapping.findMany({
       select: { vendorName: true, supplierId: true, shopifyLocationGid: true },
     }),
-    // Minimal line-item data for fulfillment counts (FK used for Shopify-mirror rules)
-    prisma.purchaseOrderLineItem.findMany({
-      where: { purchaseOrder: { archivedAt: null } },
-      select: {
-        purchaseOrderId: true,
-        quantity: true,
-        quantityReceived: true,
-        shopifyOrderLineItemId: true,
-      },
-    }),
-    prisma.shopifyOrder.count(),
-    prisma.purchaseOrder.count(),
-    fetchShopifyOrdersForOfficeTableView(0, OFFICE_TABLE_VIEW_FETCH_LIMIT),
-    fetchPurchaseOrdersForOfficeTableView(0, OFFICE_TABLE_VIEW_FETCH_LIMIT),
+    // Fulfillment counts per PO via DB aggregation — avoids fetching every row individually.
+    // done_by_qty: lines where qty <= 0 (placeholder) or fully received.
+    // shopify_linked_undone: lines with open qty that are FK'd to a Shopify line (for mirror-fulfilled logic).
+    prisma.$queryRaw<Array<{
+      purchase_order_id: string;
+      total: number;
+      done_by_qty: number;
+      shopify_linked_undone: number;
+    }>>(Prisma.sql`
+      SELECT
+        purchase_order_id,
+        COUNT(*)::int                                                                        AS total,
+        COUNT(*) FILTER (WHERE quantity <= 0 OR quantity_received >= quantity)::int         AS done_by_qty,
+        COUNT(*) FILTER (
+          WHERE quantity > 0
+            AND quantity_received < quantity
+            AND shopify_order_line_item_id IS NOT NULL
+        )::int                                                                              AS shopify_linked_undone
+      FROM "order".purchase_order_line_items
+      WHERE purchase_order_id IN (
+        SELECT id FROM "order".purchase_orders WHERE archived_at IS NULL
+      )
+      GROUP BY purchase_order_id
+    `),
     // Custom orders (internally created for missing/damaged items)
     prisma.shopifyOrder.findMany({
       where: { isReplacementOrder: true, archivedAt: null },
@@ -247,22 +248,15 @@ async function OfficeInboxContent() {
     }),
   );
 
-  // Build per-PO fulfillment counts from the minimal line query
+  // Build per-PO fulfillment counts from DB aggregation.
+  // Mirror-fulfilled POs count FK'd open lines as done (Shopify FULFILLED mirrors hub receipt).
   const lineCountsByPoId = new Map<string, { total: number; done: number }>();
-  for (const li of rawLineCounts) {
-    const cur = lineCountsByPoId.get(li.purchaseOrderId) ?? { total: 0, done: 0 };
-    cur.total++;
-    const qty = li.quantity;
-    const recv = li.quantityReceived;
-    if (qty <= 0 || recv >= qty) {
-      cur.done++;
-    } else if (
-      (mirrorFulfilledByPoId.get(li.purchaseOrderId) ?? false) &&
-      li.shopifyOrderLineItemId
-    ) {
-      cur.done++;
-    }
-    lineCountsByPoId.set(li.purchaseOrderId, cur);
+  for (const row of rawLineCounts) {
+    const mirror = mirrorFulfilledByPoId.get(row.purchase_order_id) ?? false;
+    const done = mirror
+      ? row.done_by_qty + row.shopify_linked_undone
+      : row.done_by_qty;
+    lineCountsByPoId.set(row.purchase_order_id, { total: row.total, done });
   }
 
   const archivedPurchaseOrders = rawArchivedPOs.map((po) => ({
@@ -282,15 +276,12 @@ async function OfficeInboxContent() {
       if (g) variantGidsForNotes.add(g);
     }
   }
-  const variantDefaultLineNotes = await loadVariantOfficeNotesMap(
-    prisma,
-    [...variantGidsForNotes],
-  );
+  const unlinkedOrderIds = unlinkedShopifyOrders.map((o) => o.id);
 
-  const legacyOrphanPoLines = await fetchLegacyOrphanPoLinesForInbox(
-    prisma,
-    unlinkedShopifyOrders.map((o) => o.id),
-  );
+  const [variantDefaultLineNotes, legacyOrphanPoLines] = await Promise.all([
+    loadVariantOfficeNotesMap(prisma, [...variantGidsForNotes]),
+    fetchLegacyOrphanPoLinesForInbox(prisma, unlinkedOrderIds),
+  ]);
 
   const inbox = buildInboxData(
     activePurchaseOrders,
@@ -318,10 +309,6 @@ async function OfficeInboxContent() {
       statusTabCounts={inbox.statusTabCounts}
       defaultActiveKey={inbox.defaultActiveKey}
       periods={periods}
-      tableViewShopifyRows={tableViewShopifyRows}
-      tableViewPoRows={tableViewPoRows}
-      tableViewShopifyTotal={tableViewShopifyTotal}
-      tableViewPoTotal={tableViewPoTotal}
     />
   );
 }

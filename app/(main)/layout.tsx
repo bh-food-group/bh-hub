@@ -3,8 +3,15 @@ import { RefreshTokenExpiredAlert } from '@/features/locations/components/Refres
 import Header from '@/components/control/Header';
 import { auth, getOfficeOrAdmin, requireActiveSession } from '@/lib/auth';
 import { getPendingApprovals } from '@/features/onboard/utils/onboarding';
+import { unstable_cache } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
+
+const getCachedPendingApprovals = unstable_cache(
+  getPendingApprovals,
+  ['pending-approvals'],
+  { revalidate: 60 },
+);
 
 const layout = async ({ children }: { children: ReactNode }) => {
   // =================
@@ -19,7 +26,7 @@ const layout = async ({ children }: { children: ReactNode }) => {
   // =================
   const canApprove =
     session?.user?.role === 'admin' || session?.user?.role === 'office';
-  const pending = canApprove ? await getPendingApprovals() : [];
+  const pending = canApprove ? await getCachedPendingApprovals() : [];
 
   const isOfficeOrAdmin = getOfficeOrAdmin(session?.user?.role);
 
