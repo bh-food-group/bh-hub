@@ -4,6 +4,16 @@ import { recomputeRevenueTargetSharesForLocation } from './recompute-revenue-tar
 
 const DEFAULT_REFERENCE_PERIOD_MONTHS = 12;
 
+// In-process cache: skip the 3-DB-query check if already verified recently.
+// Without this, every location-cards Phase 1 call triggers ensureRevenueTargetForMonth
+// via after(), running 3 DB queries just to confirm "already-computed" each time.
+const _gEnsure = globalThis as unknown as {
+  _ensureRevenueVerified?: Map<string, number>; // key → expiresAt
+};
+if (!_gEnsure._ensureRevenueVerified) _gEnsure._ensureRevenueVerified = new Map();
+const _verified = _gEnsure._ensureRevenueVerified;
+const ENSURE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 /**
  * When an annual goal already exists for the calendar year, ensure this specific
  * dashboard month has its own Clover mix row (best-effort recompute).
@@ -16,6 +26,13 @@ export async function ensureRevenueTargetForMonth(args: {
   const t0 = Date.now();
   const { locationId, yearMonth } = args;
   const log = (msg: string) => console.log(`[ensure-revenue] ${msg} +${Date.now() - t0}ms`);
+
+  const verifiedKey = `${locationId}:${yearMonth}`;
+  const now = Date.now();
+  const verifiedUntil = _verified.get(verifiedKey);
+  if (verifiedUntil && verifiedUntil > now) {
+    return; // Already verified/recomputed recently — skip 3 DB queries
+  }
 
   if (!isValidYearMonth(yearMonth)) return;
 
@@ -49,7 +66,11 @@ export async function ensureRevenueTargetForMonth(args: {
       locationId_appliesYearMonth: { locationId, appliesYearMonth: yearMonth },
     },
   });
-  if (existingMonth?.sharesJson?.trim()) { log('exit: already-computed'); return; }
+  if (existingMonth?.sharesJson?.trim()) {
+    log('exit: already-computed');
+    _verified.set(verifiedKey, now + ENSURE_TTL_MS);
+    return;
+  }
 
   log('calling recompute (Clover API)');
   try {
@@ -59,6 +80,7 @@ export async function ensureRevenueTargetForMonth(args: {
       DEFAULT_REFERENCE_PERIOD_MONTHS,
     );
     log('recompute done');
+    _verified.set(verifiedKey, now + ENSURE_TTL_MS);
   } catch (e) {
     log(`recompute error: ${e instanceof Error ? e.message : String(e)}`);
   }

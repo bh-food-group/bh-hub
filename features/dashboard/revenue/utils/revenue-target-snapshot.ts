@@ -268,18 +268,30 @@ const REV_CACHE_TTL_MS = 5 * 60 * 1000;
 const _gRev = globalThis as unknown as {
   _revenueSnapshotCache?: Map<string, { value: RevenueTargetSnapshot | null; expiresAt: number }>;
   _revenueRefMonthsCache?: Map<string, { value: number | null; expiresAt: number }>;
+  // Inflight dedup: multiple concurrent requests for the same key share one DB round-trip.
+  _revenueSnapshotInflight?: Map<string, Promise<RevenueTargetSnapshot | null>>;
+  _revenueRefMonthsInflight?: Map<string, Promise<number | null>>;
 };
 if (!_gRev._revenueSnapshotCache) _gRev._revenueSnapshotCache = new Map();
 if (!_gRev._revenueRefMonthsCache) _gRev._revenueRefMonthsCache = new Map();
+if (!_gRev._revenueSnapshotInflight) _gRev._revenueSnapshotInflight = new Map();
+if (!_gRev._revenueRefMonthsInflight) _gRev._revenueRefMonthsInflight = new Map();
 const _revenueSnapshotCache = _gRev._revenueSnapshotCache;
 const _revenueRefMonthsCache = _gRev._revenueRefMonthsCache;
+const _revenueSnapshotInflight = _gRev._revenueSnapshotInflight;
+const _revenueRefMonthsInflight = _gRev._revenueRefMonthsInflight;
 
 export function invalidateRevenueSnapshotCache(locationId: string, yearMonth: string) {
   _revenueSnapshotCache.delete(`${locationId}:${yearMonth}`);
   _revenueRefMonthsCache.delete(`${locationId}:${yearMonth}`);
 }
 
-/** Revenue target snapshot with 5-min in-process cache shared across module contexts. */
+/**
+ * Revenue target snapshot with 5-min in-process cache + inflight deduplication.
+ * Inflight dedup: location-cards and revenue/clover both call this for the same
+ * location/month simultaneously — without dedup that doubles DB queries and
+ * contributes to PgBouncer server connection exhaustion.
+ */
 export async function getRevenueTargetSnapshot(
   locationId: string,
   yearMonth: string,
@@ -289,12 +301,21 @@ export async function getRevenueTargetSnapshot(
   const hit = _revenueSnapshotCache.get(key);
   if (hit && hit.expiresAt > now) return hit.value;
 
-  const value = await _getRevenueTargetSnapshotUncached(locationId, yearMonth);
-  _revenueSnapshotCache.set(key, { value, expiresAt: now + REV_CACHE_TTL_MS });
-  return value;
+  const inflight = _revenueSnapshotInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = _getRevenueTargetSnapshotUncached(locationId, yearMonth)
+    .then((value) => {
+      _revenueSnapshotCache.set(key, { value, expiresAt: Date.now() + REV_CACHE_TTL_MS });
+      return value;
+    })
+    .finally(() => _revenueSnapshotInflight.delete(key));
+
+  _revenueSnapshotInflight.set(key, promise);
+  return promise;
 }
 
-/** Returns the saved referencePeriodMonths with 5-min in-process cache shared across module contexts. */
+/** Returns the saved referencePeriodMonths with 5-min in-process cache + inflight dedup. */
 export async function getRevenueMonthTargetRefMonths(
   locationId: string,
   appliesYearMonth: string,
@@ -304,11 +325,21 @@ export async function getRevenueMonthTargetRefMonths(
   const hit = _revenueRefMonthsCache.get(key);
   if (hit && hit.expiresAt > now) return hit.value;
 
-  const row = await prisma.revenueMonthTarget.findUnique({
-    where: { locationId_appliesYearMonth: { locationId, appliesYearMonth } },
-    select: { referencePeriodMonths: true },
-  });
-  const value = row?.referencePeriodMonths ?? null;
-  _revenueRefMonthsCache.set(key, { value, expiresAt: now + REV_CACHE_TTL_MS });
-  return value;
+  const inflight = _revenueRefMonthsInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = prisma.revenueMonthTarget
+    .findUnique({
+      where: { locationId_appliesYearMonth: { locationId, appliesYearMonth } },
+      select: { referencePeriodMonths: true },
+    })
+    .then((row) => {
+      const value = row?.referencePeriodMonths ?? null;
+      _revenueRefMonthsCache.set(key, { value, expiresAt: Date.now() + REV_CACHE_TTL_MS });
+      return value;
+    })
+    .finally(() => _revenueRefMonthsInflight.delete(key));
+
+  _revenueRefMonthsInflight.set(key, promise);
+  return promise;
 }
