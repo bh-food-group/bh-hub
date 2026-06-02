@@ -301,11 +301,22 @@ export async function getCloverWeeklyRevenueData(
 
   const todayIso = zonedCalendarDay(Date.now(), tz);
   const inProgressWeek = weekRows.some((r) => r.date === todayIso);
-  const wowCompareDayKeys = new Set(
-    inProgressWeek
-      ? weekRows.filter((r) => r.date <= todayIso).map((r) => r.date)
-      : weekRows.map((r) => r.date),
-  );
+
+  // For an in-progress week, only *complete* days (Sunday through yesterday) feed
+  // the headline total and the WoW comparison. Today is excluded because its sales
+  // are still being rung up — comparing a partial day against a full day last week
+  // is misleading.
+  const completeDayRows = inProgressWeek
+    ? weekRows.filter((r) => r.date < todayIso)
+    : weekRows;
+  // Edge case: today *is* the week's first day (Sunday), so there are no complete
+  // days yet. Fall back to today-only for the headline and drop the comparison.
+  const sundayStartOnly = inProgressWeek && completeDayRows.length === 0;
+  const aggregateRows = sundayStartOnly
+    ? weekRows.filter((r) => r.date === todayIso)
+    : completeDayRows;
+
+  const wowCompareDayKeys = new Set(aggregateRows.map((r) => r.date));
   const prevWowCompareDayKeys = new Set(
     [...wowCompareDayKeys].map((d) =>
       format(subDays(parseISO(d), 7), 'yyyy-MM-dd'),
@@ -328,13 +339,17 @@ export async function getCloverWeeklyRevenueData(
 
   const weekTotalCents = sumPaymentCentsInDays(payments, wowCompareDayKeys);
   const weekTotalRevenue = weekTotalCents / 100;
-  const prevWeekRevenue =
-    sumPaymentCentsInDays(prevPayments, prevWowCompareDayKeys) / 100;
+  // No complete days yet (Sunday) → no fair basis for a WoW comparison.
+  const prevWeekRevenue = sundayStartOnly
+    ? undefined
+    : sumPaymentCentsInDays(prevPayments, prevWowCompareDayKeys) / 100;
 
-  const spanRows = weekRows.filter((r) => wowCompareDayKeys.has(r.date));
   const wowCompareWeekdaySpanLabel =
-    inProgressWeek && spanRows.length > 0 && spanRows.length < weekRows.length
-      ? `${spanRows[0]!.label}–${spanRows[spanRows.length - 1]!.label} · Compare with same weekdays last week`
+    inProgressWeek &&
+    !sundayStartOnly &&
+    aggregateRows.length > 0 &&
+    aggregateRows.length < weekRows.length
+      ? `${aggregateRows[0]!.label}–${aggregateRows[aggregateRows.length - 1]!.label} · Compare with same weekdays last week`
       : undefined;
 
   const dailyBars = weekRows.map(({ date: key, label }) => {
