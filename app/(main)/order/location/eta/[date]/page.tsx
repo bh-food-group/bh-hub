@@ -22,16 +22,18 @@ const EtaDetailPage = async ({ params }: { params: Promise<{ date: string }> }) 
         select: {
           id: true,
           name: true,
-          users: { select: { email: true } },
+          orderEmail: true,
         },
       })
     : null;
 
-  const locationEmails = (location?.users ?? [])
-    .map((u) => u.email)
-    .filter((e): e is string => !!e);
+  // Filter by the location's representative order email (matches the location order list),
+  // so any user assigned to the location sees its orders regardless of their login email.
+  const orderEmail = location?.orderEmail ?? null;
 
-  if (locationEmails.length === 0) return notFound();
+  if (!orderEmail) return notFound();
+
+  const locationEmails = [orderEmail];
 
   const startOfDay = new Date(`${date}T00:00:00.000Z`);
   const startOfNextDay = new Date(startOfDay);

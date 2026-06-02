@@ -75,6 +75,9 @@ model Location {
   showBudget          Boolean                  @default(true) @map("show_budget")
   cloverMerchantId    String?                  @map("clover_merchant_id")
   cloverToken         String?                  @map("clover_token")
+  /// Representative customer email used to place Shopify orders for this location.
+  /// Location order page filters orders by this, regardless of the viewer's login email.
+  orderEmail          String?                  @map("order_email")
   budgets             Budget[]
   laborTargets        LaborTarget[]
   revenueAnnualGoals  RevenueAnnualGoal[]

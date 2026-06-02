@@ -22,22 +22,24 @@ const LocationOrderPage = async () => {
         select: {
           id: true,
           name: true,
-          users: { select: { email: true } },
+          orderEmail: true,
         },
       })
     : null;
 
-  const locationEmails = (location?.users ?? [])
-    .map((u) => u.email)
-    .filter((e): e is string => !!e);
+  // Orders are filtered by the location's representative order email, so any user
+  // assigned to the location sees its orders regardless of their own login email.
+  const orderEmail = location?.orderEmail ?? null;
 
-  if (locationEmails.length === 0) {
+  if (!orderEmail) {
     return (
       <div className="py-16 text-center text-sm text-muted-foreground">
-        No order history found for this location.
+        No order email configured for this location.
       </div>
     );
   }
+
+  const locationEmails = [orderEmail];
 
   // Load PO metadata without line items for fast initial render.
   const [purchaseOrders, rawFavorites, rawGroups] = await Promise.all([

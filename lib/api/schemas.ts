@@ -192,6 +192,13 @@ export const locationPatchSchema = z.object({
   showBudget: z.boolean().optional(),
   cloverMerchantId: z.string().nullable().optional(),
   cloverToken: z.string().nullable().optional(),
+  orderEmail: z
+    .string()
+    .trim()
+    .email('Invalid email')
+    .nullable()
+    .optional()
+    .or(z.literal('').transform(() => null)),
 });
 
 export type OnboardingPostBody = z.infer<typeof onboardingPostSchema>;

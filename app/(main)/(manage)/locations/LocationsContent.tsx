@@ -45,6 +45,7 @@ export type LocationRow = {
   showBudget: boolean;
   cloverMerchantId: string | null;
   cloverToken: string | null;
+  orderEmail: string | null;
 };
 
 type LocationsContentProps = {
@@ -169,6 +170,19 @@ export function LocationsContent({
           field="classId"
           onSave={(v) =>
             updateLocation(row.original, 'classId', v === '' ? null : v)
+          }
+        />
+      ),
+    },
+    {
+      accessorKey: 'orderEmail',
+      header: 'Order Email',
+      cell: ({ row }: { row: Row<LocationRow> }) => (
+        <EditableCell
+          row={row}
+          field="orderEmail"
+          onSave={(v) =>
+            updateLocation(row.original, 'orderEmail', v === '' ? null : v)
           }
         />
       ),
@@ -453,7 +467,7 @@ function EditableCell({
   className,
 }: {
   row: Row<LocationRow>;
-  field: 'code' | 'name' | 'classId' | 'cloverMerchantId';
+  field: 'code' | 'name' | 'classId' | 'cloverMerchantId' | 'orderEmail';
   onSave: (value: string) => void;
 } & ClassName) {
   const current = row.original[field] ?? '';
@@ -463,10 +477,13 @@ function EditableCell({
     setValue(row.original[field] ?? '');
   }, [row.original[field], field]);
 
+  // Fields that may be cleared back to empty (saved as null by the caller).
+  const clearable = field === 'classId' || field === 'orderEmail';
+
   const handleSave = () => {
     const v = value.trim();
-    if (field === 'classId') {
-      if (v !== (row.original.classId ?? '')) onSave(v === '' ? '' : v);
+    if (clearable) {
+      if (v !== current) onSave(v);
     } else {
       if (v.length > 0 && v !== current) onSave(v);
     }

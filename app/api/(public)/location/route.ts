@@ -90,6 +90,7 @@ export async function GET() {
       showBudget: true,
       cloverMerchantId: true,
       cloverToken: true,
+      orderEmail: true,
       realm: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'asc' },
@@ -106,6 +107,7 @@ export async function GET() {
     showBudget: loc.showBudget,
     cloverMerchantId: loc.cloverMerchantId,
     cloverToken: loc.cloverToken,
+    orderEmail: loc.orderEmail,
   }));
 
   return NextResponse.json(rows);

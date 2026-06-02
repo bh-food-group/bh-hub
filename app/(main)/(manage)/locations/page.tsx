@@ -16,6 +16,7 @@ type LocationRow = {
   showBudget: boolean;
   cloverMerchantId: string | null;
   cloverToken: string | null;
+  orderEmail: string | null;
 };
 
 export default async function LocationsPage() {

@@ -37,6 +37,7 @@ export async function PATCH(
     showBudget?: boolean;
     cloverMerchantId?: string | null;
     cloverToken?: string | null;
+    orderEmail?: string | null;
   } = {};
   if (body.code !== undefined) updateData.code = body.code;
   if (body.name !== undefined) updateData.name = body.name;
@@ -46,6 +47,7 @@ export async function PATCH(
   if (body.showBudget !== undefined) updateData.showBudget = body.showBudget;
   if (body.cloverMerchantId !== undefined) updateData.cloverMerchantId = body.cloverMerchantId ?? null;
   if (body.cloverToken !== undefined) updateData.cloverToken = body.cloverToken ?? null;
+  if (body.orderEmail !== undefined) updateData.orderEmail = body.orderEmail ?? null;
 
   await prisma.location.update({
     where: { id },

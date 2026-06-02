@@ -11,19 +11,17 @@ export async function getPoLineItems(poId: string): Promise<LocationOrderLineIte
 
   const location = await prisma.location.findUnique({
     where: { id: locationId },
-    select: { users: { select: { email: true } } },
+    select: { orderEmail: true },
   });
 
-  const emails = (location?.users ?? [])
-    .map((u) => u.email)
-    .filter((e): e is string => !!e);
-
-  if (emails.length === 0) return [];
+  // Scope to the location's representative order email (matches the order list/ETA pages).
+  const orderEmail = location?.orderEmail ?? null;
+  if (!orderEmail) return [];
 
   const po = await prisma.purchaseOrder.findFirst({
     where: {
       id: poId,
-      shopifyOrders: { some: { email: { in: emails } } },
+      shopifyOrders: { some: { email: orderEmail } },
     },
     select: {
       lineItems: {
