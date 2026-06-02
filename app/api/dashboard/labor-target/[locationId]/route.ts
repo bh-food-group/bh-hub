@@ -71,7 +71,6 @@ export async function PATCH(
       rate,
       referencePeriodMonths: months,
     });
-
     return NextResponse.json({ ok: true, yearMonth, laborTarget });
   } catch (err: unknown) {
     return toApiErrorResponse(

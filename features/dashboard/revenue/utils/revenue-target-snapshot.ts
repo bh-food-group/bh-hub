@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/core/prisma';
+import { unstable_cache } from 'next/cache';
 import { revenueBucketKeyForIsoDate } from './revenue-target-bucket-key';
 import type { RevenueTargetSharesPayload } from './revenue-target-types';
 import { eachDayOfInterval, endOfMonth, format, parseISO } from 'date-fns';
@@ -263,7 +264,19 @@ async function _getRevenueTargetSnapshotUncached(
   return { annualGoal: annual, monthlyTarget, dailyTargetsByDate };
 }
 
+export const REVENUE_SNAPSHOT_CACHE_TAG = 'dashboard-revenue-snapshot';
 const REV_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Shared across all Vercel instances via Vercel Data Cache.
+// Without this, every instance independently queries DB for the same location/month —
+// causing PgBouncer server connection exhaustion on month navigation.
+// 1-hour TTL: revenueSnapshot changes only on admin action (recomputeRevenueTargetShares);
+// stale-while-revalidate means users always get instant responses after first population.
+const _getRevenueTargetSnapshotCached = unstable_cache(
+  _getRevenueTargetSnapshotUncached,
+  ['dashboard-revenue-snapshot'],
+  { revalidate: 3600, tags: [REVENUE_SNAPSHOT_CACHE_TAG] },
+);
 
 const _gRev = globalThis as unknown as {
   _revenueSnapshotCache?: Map<string, { value: RevenueTargetSnapshot | null; expiresAt: number }>;
@@ -284,6 +297,7 @@ const _revenueRefMonthsInflight = _gRev._revenueRefMonthsInflight;
 export function invalidateRevenueSnapshotCache(locationId: string, yearMonth: string) {
   _revenueSnapshotCache.delete(`${locationId}:${yearMonth}`);
   _revenueRefMonthsCache.delete(`${locationId}:${yearMonth}`);
+  // Route handlers should also call revalidateTag(REVENUE_SNAPSHOT_CACHE_TAG).
 }
 
 /**
@@ -304,7 +318,7 @@ export async function getRevenueTargetSnapshot(
   const inflight = _revenueSnapshotInflight.get(key);
   if (inflight) return inflight;
 
-  const promise = _getRevenueTargetSnapshotUncached(locationId, yearMonth)
+  const promise = _getRevenueTargetSnapshotCached(locationId, yearMonth)
     .then((value) => {
       _revenueSnapshotCache.set(key, { value, expiresAt: Date.now() + REV_CACHE_TTL_MS });
       return value;

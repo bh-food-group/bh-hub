@@ -26,7 +26,7 @@ export async function register() {
         console.warn('[instrumentation] DB connection warmup timed out — resetting pool');
         resetPool();
       }
-    }, 8_000);
+    }, 15_000); // 15s: handles cold Supabase start (~5s) + query time buffer
     try {
       // Phase 1: TCP + basic connectivity
       await Promise.all(
@@ -34,11 +34,18 @@ export async function register() {
           (prisma.$queryRaw`SELECT 1` as Promise<unknown>).catch(() => {}),
         ),
       );
-      // Phase 2: real dashboard table queries to warm PgBouncer server connections
+      // Phase 2: real dashboard table queries to warm PgBouncer server connections.
+      // Use the same query shapes as the actual user requests so the same
+      // cross-schema joins and query plans are exercised (not just LIMIT 1 scans).
       await Promise.all([
-        prisma.budget.findFirst({ select: { id: true } }).catch(() => {}),
+        // Same join as getBudgetByLocationAndMonth (dashboard.budgets → public.locations)
+        prisma.budget.findFirst({
+          include: { location: { select: { id: true, code: true, name: true } } },
+        }).catch(() => {}),
         prisma.laborTarget.findFirst({ select: { id: true } }).catch(() => {}),
         prisma.revenueMonthTarget.findFirst({ select: { id: true } }).catch(() => {}),
+        // revenueAnnualGoal is used in getRevenueTargetSnapshot
+        prisma.revenueAnnualGoal.findFirst({ select: { id: true } }).catch(() => {}),
       ]);
     } finally {
       done = true;

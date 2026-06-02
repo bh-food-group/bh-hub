@@ -1,4 +1,5 @@
 import { recomputeRevenueTargetSharesForLocation } from '@/features/dashboard/revenue/utils/recompute-revenue-target-shares';
+import { invalidateRevenueSnapshotCache } from '@/features/dashboard/revenue/utils/revenue-target-snapshot';
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { toApiErrorResponse } from '@/lib/core/errors';
 import { prisma } from '@/lib/core/prisma';
@@ -118,6 +119,7 @@ export async function PATCH(
         referencePeriodMonths,
       );
     }
+    invalidateRevenueSnapshotCache(locationId, appliesYearMonth); // L1 in-memory
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
