@@ -117,8 +117,12 @@ export async function GET(request: NextRequest) {
     // phase=1: fast path — payments + prevPayments only, no order items.
     const isPhase1 = phase === '1';
 
+    // cacheOnly: true — never hit DB from this route.
+    // location-cards is the single owner of the DB query + Vercel Data Cache write.
+    // On cold cache, snapshot is null → chart renders without target overlay (graceful).
+    // After location-cards Phase 1 runs, Vercel Data Cache is warm → next load shows targets.
     const [snapshot, raw] = await Promise.all([
-      getRevenueTargetSnapshot(locationId, yearMonth),
+      getRevenueTargetSnapshot(locationId, yearMonth, { cacheOnly: true }),
       getCloverWeeklyRevenueData(locationId, yearMonth, weekOffset, {
         includeOrderItems: !isPhase1,
       }),

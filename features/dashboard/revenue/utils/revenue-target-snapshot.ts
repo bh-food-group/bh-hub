@@ -302,18 +302,23 @@ export function invalidateRevenueSnapshotCache(locationId: string, yearMonth: st
 
 /**
  * Revenue target snapshot with 5-min in-process cache + inflight deduplication.
- * Inflight dedup: location-cards and revenue/clover both call this for the same
- * location/month simultaneously — without dedup that doubles DB queries and
- * contributes to PgBouncer server connection exhaustion.
+ *
+ * `cacheOnly: true` — return the cached value (in-memory or Vercel Data Cache) without
+ * ever hitting the DB. Used by revenue/clover so it doesn't race with location-cards
+ * for PgBouncer server connections. On cache miss it returns null; the chart renders
+ * without a revenue target overlay and picks it up on the next load (cache warm).
  */
 export async function getRevenueTargetSnapshot(
   locationId: string,
   yearMonth: string,
+  opts?: { cacheOnly?: boolean },
 ): Promise<RevenueTargetSnapshot | null> {
   const key = `${locationId}:${yearMonth}`;
   const now = Date.now();
   const hit = _revenueSnapshotCache.get(key);
   if (hit && hit.expiresAt > now) return hit.value;
+
+  if (opts?.cacheOnly) return null;
 
   const inflight = _revenueSnapshotInflight.get(key);
   if (inflight) return inflight;
