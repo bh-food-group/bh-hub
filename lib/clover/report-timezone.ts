@@ -5,21 +5,50 @@ export function getCloverReportTimeZone(): string {
   return CLOVER_REPORT_TIMEZONE;
 }
 
+// Intl.DateTimeFormat construction is expensive (~0.1-0.5ms each). These helpers run
+// inside 24-48-iteration hour-scan loops and are called ~1095× per revenue snapshot
+// (buildYearDailyGoals over 3 years) → tens of thousands of constructions = multi-second
+// event-loop blocking. Cache one formatter per timeZone and reuse — .format() is cheap.
+const _calDayFmt = new Map<string, Intl.DateTimeFormat>();
+const _hourFmt = new Map<string, Intl.DateTimeFormat>();
+const _weekdayFmt = new Map<string, Intl.DateTimeFormat>();
+
+function calDayFmt(timeZone: string): Intl.DateTimeFormat {
+  let f = _calDayFmt.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    _calDayFmt.set(timeZone, f);
+  }
+  return f;
+}
+function hourFmt(timeZone: string): Intl.DateTimeFormat {
+  let f = _hourFmt.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', hourCycle: 'h23' });
+    _hourFmt.set(timeZone, f);
+  }
+  return f;
+}
+function weekdayFmt(timeZone: string): Intl.DateTimeFormat {
+  let f = _weekdayFmt.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' });
+    _weekdayFmt.set(timeZone, f);
+  }
+  return f;
+}
+
 export function zonedCalendarDay(utcMs: number, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(utcMs));
+  return calDayFmt(timeZone).format(new Date(utcMs));
 }
 
 export function zonedHour(utcMs: number, timeZone: string): number {
-  const hourPart = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour: 'numeric',
-    hourCycle: 'h23',
-  })
+  const hourPart = hourFmt(timeZone)
     .formatToParts(new Date(utcMs))
     .find((p) => p.type === 'hour')?.value;
   const h = Number.parseInt(hourPart ?? '0', 10);
@@ -27,10 +56,7 @@ export function zonedHour(utcMs: number, timeZone: string): number {
 }
 
 export function zonedWeekdayShort(utcMs: number, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'short',
-  })
+  return weekdayFmt(timeZone)
     .format(new Date(utcMs))
     .toUpperCase()
     .slice(0, 3);
@@ -57,16 +83,12 @@ export function zonedWeekdaySun0ForIsoDate(
   for (let h = 0; h < 48; h++) {
     const ms = start + h * 3600000;
     if (zonedCalendarDay(ms, timeZone) !== isoDate) continue;
-    const short = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      weekday: 'short',
-    }).format(new Date(ms));
+    const short = weekdayFmt(timeZone).format(new Date(ms));
     return WEEKDAY_SUN0[short] ?? 0;
   }
-  const fallback = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'short',
-  }).format(new Date(Date.UTC(y, m - 1, d, 18, 0, 0)));
+  const fallback = weekdayFmt(timeZone).format(
+    new Date(Date.UTC(y, m - 1, d, 18, 0, 0)),
+  );
   return WEEKDAY_SUN0[fallback] ?? 0;
 }
 

@@ -1,5 +1,4 @@
 import { prisma } from '@/lib/core/prisma';
-import { unstable_cache } from 'next/cache';
 import { revenueBucketKeyForIsoDate } from './revenue-target-bucket-key';
 import type { RevenueTargetSharesPayload } from './revenue-target-types';
 import { eachDayOfInterval, endOfMonth, format, parseISO } from 'date-fns';
@@ -264,19 +263,15 @@ async function _getRevenueTargetSnapshotUncached(
   return { annualGoal: annual, monthlyTarget, dailyTargetsByDate };
 }
 
+// Exported for backward-compat with any revalidateTag callers. The L2 Vercel Data
+// Cache (unstable_cache) was removed: its cold-month read tail caused multi-second
+// stalls on dashboard month navigation. This read sits inside the location-cards
+// phase-1 path (fetchBaseData), which gates phase-2 revenue/cost rendering, so a slow
+// snapshot read kept the revenue/cost cards in skeleton. The underlying DB work is only
+// 2-3 indexed queries, so we serve from the L1 in-process cache + inflight dedup below,
+// falling through to a direct Postgres read.
 export const REVENUE_SNAPSHOT_CACHE_TAG = 'dashboard-revenue-snapshot';
 const REV_CACHE_TTL_MS = 5 * 60 * 1000;
-
-// Shared across all Vercel instances via Vercel Data Cache.
-// Without this, every instance independently queries DB for the same location/month —
-// causing PgBouncer server connection exhaustion on month navigation.
-// 1-hour TTL: revenueSnapshot changes only on admin action (recomputeRevenueTargetShares);
-// stale-while-revalidate means users always get instant responses after first population.
-const _getRevenueTargetSnapshotCached = unstable_cache(
-  _getRevenueTargetSnapshotUncached,
-  ['dashboard-revenue-snapshot'],
-  { revalidate: 3600, tags: [REVENUE_SNAPSHOT_CACHE_TAG] },
-);
 
 const _gRev = globalThis as unknown as {
   _revenueSnapshotCache?: Map<string, { value: RevenueTargetSnapshot | null; expiresAt: number }>;
@@ -303,7 +298,7 @@ export function invalidateRevenueSnapshotCache(locationId: string, yearMonth: st
 /**
  * Revenue target snapshot with 5-min in-process cache + inflight deduplication.
  *
- * `cacheOnly: true` — return the cached value (in-memory or Vercel Data Cache) without
+ * `cacheOnly: true` — return the cached value (in-memory L1 only) without
  * ever hitting the DB. Used by revenue/clover so it doesn't race with location-cards
  * for PgBouncer server connections. On cache miss it returns null; the chart renders
  * without a revenue target overlay and picks it up on the next load (cache warm).
@@ -323,7 +318,8 @@ export async function getRevenueTargetSnapshot(
   const inflight = _revenueSnapshotInflight.get(key);
   if (inflight) return inflight;
 
-  const promise = _getRevenueTargetSnapshotCached(locationId, yearMonth)
+  // Direct Postgres read (no Vercel Data Cache) — see REVENUE_SNAPSHOT_CACHE_TAG note above.
+  const promise = _getRevenueTargetSnapshotUncached(locationId, yearMonth)
     .then((value) => {
       _revenueSnapshotCache.set(key, { value, expiresAt: Date.now() + REV_CACHE_TTL_MS });
       return value;

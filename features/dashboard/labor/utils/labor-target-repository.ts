@@ -1,5 +1,4 @@
 import { prisma } from '@/lib/core/prisma';
-import { unstable_cache } from 'next/cache';
 
 export type LaborTargetRow = {
   id: string;
@@ -28,19 +27,20 @@ function mapLaborTarget(raw: {
 export const LABOR_TARGET_CACHE_TAG = 'dashboard-labor-target';
 const LABOR_CACHE_TTL_MS = 5 * 60 * 1000;
 
-// Shared across all Vercel instances via Vercel Data Cache.
-// Prevents multiple instances from querying DB for the same location/month simultaneously.
-// 1-hour TTL: laborTarget changes only on admin action (upsertLaborTarget).
-const _getLaborTargetFromDb = unstable_cache(
-  async (locationId: string, yearMonth: string): Promise<LaborTargetRow | null> => {
-    const raw = await prisma.laborTarget.findUnique({
-      where: { locationId_yearMonth: { locationId, yearMonth } },
-    });
-    return raw ? mapLaborTarget(raw) : null;
-  },
-  ['dashboard-labor-target'],
-  { revalidate: 3600, tags: [LABOR_TARGET_CACHE_TAG] },
-);
+// Direct Postgres read — no Vercel Data Cache (unstable_cache). The L1 in-process cache
+// + inflight dedup below already collapse concurrent reads, and this is a single indexed
+// lookup, so a per-instance query on L1 miss is cheap. The L2 unstable_cache was removed
+// because its cold-month read tail (multi-second stalls on dashboard month navigation)
+// far outweighed the savings on a tiny row.
+async function _getLaborTargetFromDb(
+  locationId: string,
+  yearMonth: string,
+): Promise<LaborTargetRow | null> {
+  const raw = await prisma.laborTarget.findUnique({
+    where: { locationId_yearMonth: { locationId, yearMonth } },
+  });
+  return raw ? mapLaborTarget(raw) : null;
+}
 
 // L1: per-instance in-memory cache (sub-ms for warm hits)
 // L2: Vercel Data Cache via unstable_cache (shared across instances)
