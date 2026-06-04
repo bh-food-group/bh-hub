@@ -250,11 +250,11 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
   // ── Save / Delete / Duplicate ───────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!state.title.trim()) {
-      toast.error('제목을 입력해주세요.');
+      toast.error('Please enter a title.');
       return;
     }
     if (state.totalCount <= 0) {
-      toast.error('총 갯수를 입력해주세요.');
+      toast.error('Please enter the total count.');
       return;
     }
 
@@ -301,13 +301,13 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
       }
 
       setIsDirty(false);
-      toast.success('저장되었습니다.');
+      toast.success('Saved.');
 
       if (!state.id) {
         router.replace(`/cost/edit/${savedId}`);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '저장에 실패했습니다.');
+      toast.error(e instanceof Error ? e.message : 'Failed to save.');
     } finally {
       setIsSaving(false);
     }
@@ -319,10 +319,10 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
     try {
       const res = await fetch(`/api/cost/${state.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Delete failed');
-      toast.success('삭제되었습니다.');
+      toast.success('Deleted.');
       router.push('/cost/list');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '삭제에 실패했습니다.');
+      toast.error(e instanceof Error ? e.message : 'Failed to delete.');
     } finally {
       setIsDeleting(false);
     }
@@ -342,10 +342,14 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Duplicate failed');
       const data = await res.json();
-      toast.success('복제되었습니다.');
-      router.push(`/cost/edit/${data.cost.id}`);
+      toast.success('Duplicated.', {
+        action: {
+          label: 'View',
+          onClick: () => router.push(`/cost/edit/${data.cost.id}`),
+        },
+      });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '복제에 실패했습니다.');
+      toast.error(e instanceof Error ? e.message : 'Failed to duplicate.');
     }
   }, [state, router]);
 
@@ -361,10 +365,10 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
-      toast.success(newLocked ? '잠금되었습니다.' : '잠금이 해제되었습니다.');
+      toast.success(newLocked ? 'Locked.' : 'Unlocked.');
     } catch {
       setState((s) => ({ ...s, locked: !newLocked }));
-      toast.error('잠금 상태 변경에 실패했습니다.');
+      toast.error('Failed to update lock status.');
     }
   }, [state]);
 
