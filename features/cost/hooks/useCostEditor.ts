@@ -22,6 +22,7 @@ import {
   calcLaborTotal,
   calcOtherTotal,
   calcPackagingTotal,
+  calcMarginValue,
   calcPricePerProduct,
   calcTotalCost,
   recalcPrices,
@@ -212,8 +213,25 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
 
   const updatePrice = useCallback((id: string, patch: Partial<PriceEditorItem>) => {
     setState((s) => {
-      const updated = s.prices.map((p) => (p.id === id ? { ...p, ...patch } : p));
-      return { ...s, prices: recalcPrices(updated, calcPricePerProduct(calcTotalCost(calcIngredientTotal(s.ingredients), calcPackagingTotal(s.packagings), calcLaborTotal(s.labors), calcOtherTotal(s.others)), s.totalCount)) };
+      const ppp = calcPricePerProduct(
+        calcTotalCost(
+          calcIngredientTotal(s.ingredients),
+          calcPackagingTotal(s.packagings),
+          calcLaborTotal(s.labors),
+          calcOtherTotal(s.others),
+        ),
+        s.totalCount,
+      );
+      let updated = s.prices.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      // Price edited directly → derive the margin that produces it (inverse binding).
+      if (patch.price != null && patch.margin == null) {
+        updated = updated.map((p) =>
+          p.id === id
+            ? { ...p, margin: calcMarginValue(p, ppp, updated, patch.price!) }
+            : p,
+        );
+      }
+      return { ...s, prices: recalcPrices(updated, ppp) };
     });
     markDirty();
   }, [markDirty]);

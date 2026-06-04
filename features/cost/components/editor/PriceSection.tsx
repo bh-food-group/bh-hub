@@ -13,8 +13,14 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Trash2, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
 import { UNIT_PRICE_KEY } from '../../utils/calculations';
 import type { PriceEditorItem } from '../../types/cost';
+
+/** Formats a number for an input field, trimming float noise and trailing zeros. */
+function formatNum(n: number): string {
+  return String(Math.round(n * 1e6) / 1e6);
+}
 
 interface Props {
   prices: PriceEditorItem[];
@@ -97,6 +103,25 @@ function PriceRow({
 }) {
   const t = useTranslations('Cost');
 
+  // Local text state lets the user type freely (e.g. trailing "."), while still
+  // resyncing whenever the underlying value changes from the other input or cost edits.
+  const [marginText, setMarginText] = useState(() => formatNum(price.margin));
+  const [priceText, setPriceText] = useState(() => formatNum(price.price));
+
+  useEffect(() => {
+    if (Math.abs(parseFloat(marginText) - price.margin) > 1e-6) {
+      setMarginText(formatNum(price.margin));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [price.margin]);
+
+  useEffect(() => {
+    if (Math.abs(parseFloat(priceText) - price.price) > 1e-6) {
+      setPriceText(formatNum(price.price));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [price.price]);
+
   const baseOptions = [
     { value: UNIT_PRICE_KEY, label: t('unitPrice') },
     ...prices
@@ -154,8 +179,11 @@ function PriceRow({
             type="number"
             step="0.1"
             className="h-7 text-sm"
-            value={price.margin}
-            onChange={(e) => onUpdate(price.id, { margin: parseFloat(e.target.value) || 0 })}
+            value={marginText}
+            onChange={(e) => {
+              setMarginText(e.target.value);
+              onUpdate(price.id, { margin: parseFloat(e.target.value) || 0 });
+            }}
             disabled={disabled}
           />
         </div>
@@ -175,9 +203,20 @@ function PriceRow({
             {t('isFinalPrice')}
           </Label>
         </div>
-        <span className="tabular-nums font-semibold text-sm">
-          ${price.price.toFixed(2)}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold">$</span>
+          <Input
+            type="number"
+            step="0.01"
+            className="h-7 w-24 text-sm text-right tabular-nums font-semibold"
+            value={priceText}
+            onChange={(e) => {
+              setPriceText(e.target.value);
+              onUpdate(price.id, { price: parseFloat(e.target.value) || 0 });
+            }}
+            disabled={disabled}
+          />
+        </div>
       </div>
     </div>
   );

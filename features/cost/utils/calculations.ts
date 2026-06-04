@@ -57,19 +57,37 @@ export function calcPricePerProduct(totalCost: number, totalCount: number): numb
   return totalCost / totalCount;
 }
 
+/** Resolves the base price a margin is applied against (unit price or another price row). */
+function resolveBase(
+  item: PriceEditorItem,
+  pricePerProduct: number,
+  allPrices: PriceEditorItem[],
+): number {
+  if (!item.base || item.base === UNIT_PRICE_KEY) {
+    return pricePerProduct;
+  }
+  const refPrice = allPrices.find((p) => p.id === item.base);
+  return refPrice ? refPrice.price : pricePerProduct;
+}
+
 export function calcPriceValue(
   item: PriceEditorItem,
   pricePerProduct: number,
   allPrices: PriceEditorItem[],
 ): number {
-  let base: number;
-  if (!item.base || item.base === UNIT_PRICE_KEY) {
-    base = pricePerProduct;
-  } else {
-    const refPrice = allPrices.find((p) => p.id === item.base);
-    base = refPrice ? refPrice.price : pricePerProduct;
-  }
-  return base * (1 + item.margin / 100);
+  return resolveBase(item, pricePerProduct, allPrices) * (1 + item.margin / 100);
+}
+
+/** Inverse of calcPriceValue: derives the margin (%) that yields the given price. */
+export function calcMarginValue(
+  item: PriceEditorItem,
+  pricePerProduct: number,
+  allPrices: PriceEditorItem[],
+  targetPrice: number,
+): number {
+  const base = resolveBase(item, pricePerProduct, allPrices);
+  if (base === 0) return 0;
+  return (targetPrice / base - 1) * 100;
 }
 
 /** Recalculates all price values given the current pricePerProduct */
