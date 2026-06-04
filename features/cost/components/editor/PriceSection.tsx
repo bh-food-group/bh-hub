@@ -109,14 +109,18 @@ function PriceRow({
   const [priceText, setPriceText] = useState(() => formatNum(price.price));
 
   useEffect(() => {
-    if (Math.abs(parseFloat(marginText) - price.margin) > 1e-6) {
+    // NaN (empty/invalid field) must also resync, otherwise a blank field stays
+    // blank when the value changes from the other input.
+    const parsed = parseFloat(marginText);
+    if (Number.isNaN(parsed) || Math.abs(parsed - price.margin) > 1e-6) {
       setMarginText(formatNum(price.margin));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [price.margin]);
 
   useEffect(() => {
-    if (Math.abs(parseFloat(priceText) - price.price) > 1e-6) {
+    const parsed = parseFloat(priceText);
+    if (Number.isNaN(parsed) || Math.abs(parsed - price.price) > 1e-6) {
       setPriceText(formatNum(price.price));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
