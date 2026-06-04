@@ -16,6 +16,7 @@ import {
   buildSavePayload,
   defaultCostState,
   deserializeCost,
+  remapStateForDuplicate,
 } from '../utils/cost-api-helpers';
 import {
   calcIngredientTotal,
@@ -330,7 +331,10 @@ export function useCostEditor(initialCost?: CostDetailApiResponse) {
   const handleDuplicate = useCallback(async () => {
     if (!state.id) return;
     try {
-      const payload = buildSavePayload({ ...state, id: undefined, title: `${state.title} (복사본)` });
+      const payload = buildSavePayload({
+        ...remapStateForDuplicate(state),
+        title: `${state.title} (복사본)`,
+      });
       const res = await fetch('/api/cost', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import type {
   CostEditorState,
   CostSavePayload,
@@ -21,6 +22,32 @@ export function buildSavePayload(state: CostEditorState): CostSavePayload {
     labors: state.labors.map(serializeLabor),
     others: state.others.map(serializeOther),
     prices: state.prices.map(serializePrice),
+  };
+}
+
+/**
+ * Returns a copy of `state` ready to be POSTed as a brand-new cost: clears the
+ * cost id and regenerates every child row id (ingredients / packagings / labors /
+ * others / prices) so the create does not collide with the source rows' primary
+ * keys. Chained-price `base` references are remapped to the new price ids so the
+ * pricing chain is preserved. Tags are kept (shared via relation, not duplicated).
+ */
+export function remapStateForDuplicate(state: CostEditorState): CostEditorState {
+  const priceIdMap = new Map<string, string>();
+  for (const p of state.prices) priceIdMap.set(p.id, uuidv4());
+
+  return {
+    ...state,
+    id: undefined,
+    ingredients: state.ingredients.map((i) => ({ ...i, id: uuidv4() })),
+    packagings: state.packagings.map((p) => ({ ...p, id: uuidv4() })),
+    labors: state.labors.map((l) => ({ ...l, id: uuidv4() })),
+    others: state.others.map((o) => ({ ...o, id: uuidv4() })),
+    prices: state.prices.map((p) => ({
+      ...p,
+      id: priceIdMap.get(p.id)!,
+      base: p.base ? (priceIdMap.get(p.base) ?? p.base) : p.base,
+    })),
   };
 }
 
