@@ -149,12 +149,12 @@ export function usePoMutations(ctx: PoMutationContext) {
     [customerGroups, pendingNewPoForPoCreatedTabRef, setActiveKey, setActiveStatusTab, setMainPanel, setSelectedPoBlockId],
   );
 
-  const handleCreatePo = useCallback(
-    async (key: SupplierKey, payload?: CreatePoPayload): Promise<{ ok: true } | { ok: false; reason: 'duplicate_po_number' | 'unknown' }> => {
-      const entry = states[key];
-      if (!entry) return { ok: false, reason: 'unknown' };
-
-      const supplierId = resolveSupplierIdFromKey(key);
+  /**
+   * Collects the inbox drafts whose lines are currently checked for `key`, and the
+   * resulting `lineItems` / `shopifyOrderRefs` payload — shared by Create PO and Merge.
+   */
+  const buildIncludedDraftPayload = useCallback(
+    (key: SupplierKey) => {
       const raw = patchedViewDataMap[key];
       const entryLocal = states[key] ?? null;
       const drafts = entryLocal?.poCreated && raw?.type === 'pre'
@@ -192,6 +192,19 @@ export function usePoMutations(ctx: PoMutationContext) {
           }];
         });
       });
+
+      return { includedDrafts, shopifyOrderRefs, lineItems };
+    },
+    [patchedViewDataMap, states, showArchived, activeStatusTab, draftInclusions, draftLineNotes],
+  );
+
+  const handleCreatePo = useCallback(
+    async (key: SupplierKey, payload?: CreatePoPayload): Promise<{ ok: true } | { ok: false; reason: 'duplicate_po_number' | 'unknown' }> => {
+      const entry = states[key];
+      if (!entry) return { ok: false, reason: 'unknown' };
+
+      const supplierId = resolveSupplierIdFromKey(key);
+      const { includedDrafts, shopifyOrderRefs, lineItems } = buildIncludedDraftPayload(key);
 
       try {
         const res = await fetch('/api/order/purchase-orders', {
@@ -258,9 +271,70 @@ export function usePoMutations(ctx: PoMutationContext) {
         return { ok: false, reason: 'unknown' };
       }
     },
-    [states, setStates, patchedViewDataMap, draftInclusions, draftLineNotes, effectivePoNumberRef,
-     router, activeStatusTab, showArchived, actions, pendingPoNavigationRef, pendingNewPoForPoCreatedTabRef,
+    [states, setStates, buildIncludedDraftPayload, effectivePoNumberRef,
+     router, actions, pendingPoNavigationRef, pendingNewPoForPoCreatedTabRef,
      setActivePeriod, setActiveStatusTab, setMainPanel, setSelectedPoBlockId, setShowArchived, showPoCreatedFollowUpToast],
+  );
+
+  const handleMergeIntoPo = useCallback(
+    async (targetPoId: string): Promise<void> => {
+      const key = activeKey;
+      const entry = states[key];
+      if (!entry) return;
+
+      const raw = patchedViewDataMap[key];
+      const oldBlock = raw?.type === 'post'
+        ? raw.purchaseOrders.find((p) => p.id === targetPoId)
+        : undefined;
+
+      const { includedDrafts, shopifyOrderRefs, lineItems } = buildIncludedDraftPayload(key);
+      if (lineItems.length === 0) {
+        toast.error('Select at least one item to merge.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/order/purchase-orders/${targetPoId}/merge-inbox`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lineItems, shopifyOrderRefs }),
+        });
+
+        if (res.ok) {
+          const body = (await res.json().catch(() => null)) as { officeBlock?: OfficePurchaseOrderBlock } | null;
+          const officeBlock = body?.officeBlock?.id ? body.officeBlock : null;
+          if (officeBlock) {
+            const removedDraftIds = includedDrafts.map((d) => d.id);
+            actions.applyPoMerge(key, targetPoId, officeBlock, oldBlock, removedDraftIds, includedDrafts, setStates);
+            pendingNewPoForPoCreatedTabRef.current = { supplierKey: key, poId: officeBlock.id };
+            setMainPanel('grouped');
+            setShowArchived(false);
+            setActivePeriod('all');
+            setActiveStatusTab('po_created');
+            setActiveKey(key);
+            setSelectedPoBlockId(officeBlock.id);
+            toast.success(`Merged into PO #${officeBlock.poNumber}`);
+          }
+          router.refresh();
+          return;
+        }
+
+        const body = await res.json().catch(() => null);
+        console.error('Merge into PO failed:', body?.error ?? res.statusText);
+        if (res.status === 409 && body?.code === 'PO_NOT_MERGEABLE') {
+          toast.error('This PO can no longer accept new items. Refreshing…');
+          router.refresh();
+        } else {
+          toast.error(typeof body?.error === 'string' ? body.error : 'Could not merge into PO');
+        }
+      } catch (err) {
+        console.error('Merge into PO error:', err);
+        toast.error('Network error');
+      }
+    },
+    [activeKey, states, patchedViewDataMap, buildIncludedDraftPayload, actions, setStates,
+     pendingNewPoForPoCreatedTabRef, setMainPanel, setShowArchived, setActivePeriod,
+     setActiveStatusTab, setActiveKey, setSelectedPoBlockId, router],
   );
 
   const handleSeparatePo = useCallback(
@@ -604,6 +678,7 @@ export function usePoMutations(ctx: PoMutationContext) {
     handlePoEmailDeliveryWaivedChange,
     showPoCreatedFollowUpToast,
     handleCreatePo,
+    handleMergeIntoPo,
     handleSeparatePo,
     handleEditPo,
     handleDeletePo,

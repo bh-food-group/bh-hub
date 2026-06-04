@@ -40,6 +40,7 @@ import {
   type MetaPoNumberFieldError,
 } from './MetaPoNumberInput';
 import { DeliveryLocationPresetPicker } from './DeliveryLocationPresetPicker';
+import { MergeIntoPoDialog } from './MergeIntoPoDialog';
 import { postSendPurchaseOrderEmail } from '../utils/post-send-po-email';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -140,6 +141,12 @@ type Props = {
   lineItemsLoading?: boolean;
   /** Inbox Shopify order ids shown for this supplier row (non-archived drafts). */
   inboxShopifyOrderIds?: string[];
+  /** Open POs for the active supplier that the inbox selection can be merged into. */
+  mergeablePurchaseOrders?: OfficePurchaseOrderBlock[];
+  /** Count of inbox lines currently checked — shown in the merge dialog. */
+  mergeIncludedLineCount?: number;
+  /** Merge the currently-checked inbox lines into an existing open PO. */
+  onMergeIntoPo?: (poId: string) => void | Promise<void>;
 };
 
 export function MetaPanel({
@@ -169,6 +176,9 @@ export function MetaPanel({
   poPrintHeadline,
   lineItemsLoading,
   inboxShopifyOrderIds,
+  mergeablePurchaseOrders,
+  mergeIncludedLineCount,
+  onMergeIntoPo,
 }: Props) {
   return (
     <div className="w-[192px] flex-shrink-0 border-l bg-background flex flex-col overflow-y-auto">
@@ -190,6 +200,9 @@ export function MetaPanel({
           customerDefaultBilling={customerDefaultBilling}
           customerBillingSameAsShipping={customerBillingSameAsShipping}
           inboxShopifyOrderIds={inboxShopifyOrderIds}
+          mergeablePurchaseOrders={mergeablePurchaseOrders}
+          mergeIncludedLineCount={mergeIncludedLineCount}
+          onMergeIntoPo={onMergeIntoPo}
         />
       ) : (
         <WithPoMeta
@@ -388,6 +401,9 @@ function WithoutPoMeta({
   customerDefaultBilling,
   customerBillingSameAsShipping,
   inboxShopifyOrderIds,
+  mergeablePurchaseOrders,
+  mergeIncludedLineCount,
+  onMergeIntoPo,
 }: {
   entry: SupplierEntry;
   activeKey: SupplierKey;
@@ -408,10 +424,15 @@ function WithoutPoMeta({
   customerDefaultBilling?: PoAddress | null;
   customerBillingSameAsShipping?: boolean;
   inboxShopifyOrderIds?: string[];
+  mergeablePurchaseOrders?: OfficePurchaseOrderBlock[];
+  mergeIncludedLineCount?: number;
+  onMergeIntoPo?: (poId: string) => void | Promise<void>;
 }) {
   const [createPoNumberError, setCreatePoNumberError] =
     useState<MetaPoNumberFieldError>(null);
   const [creating, setCreating] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [shipAddrEditOpen, setShipAddrEditOpen] = useState(false);
   const [shipAddr, setShipAddr] = useState<PoAddress>(
     customerDefaultShipping ?? { ...EMPTY_ADDR },
@@ -674,6 +695,22 @@ function WithoutPoMeta({
             )}
           </Button>
         )}
+        {onMergeIntoPo &&
+          inboxShopifyOrderIds &&
+          inboxShopifyOrderIds.length > 0 &&
+          mergeablePurchaseOrders &&
+          mergeablePurchaseOrders.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="w-full justify-center text-[11px] rounded-[5px]"
+              disabled={creating || merging}
+              onClick={() => setMergeDialogOpen(true)}
+            >
+              Merge into existing PO
+            </Button>
+          )}
         {(entry.isArchived ? onUnarchive : onArchive) ? (
           <>
             <Separator className="my-0.5" />
@@ -718,6 +755,27 @@ function WithoutPoMeta({
           </>
         )}
       </div>
+
+      {onMergeIntoPo && (
+        <MergeIntoPoDialog
+          open={mergeDialogOpen}
+          onOpenChange={(o) => {
+            if (!merging) setMergeDialogOpen(o);
+          }}
+          purchaseOrders={mergeablePurchaseOrders ?? []}
+          includedLineCount={mergeIncludedLineCount ?? 0}
+          submitting={merging}
+          onConfirm={async (poId) => {
+            setMerging(true);
+            try {
+              await onMergeIntoPo(poId);
+              setMergeDialogOpen(false);
+            } finally {
+              setMerging(false);
+            }
+          }}
+        />
+      )}
     </form>
   );
 }

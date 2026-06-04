@@ -244,6 +244,7 @@ export function OrderManagementView({
     handleRetryLineItemFetch: _handleRetryLineItemFetch,
     handlePoEmailDeliveryWaivedChange,
     handleCreatePo,
+    handleMergeIntoPo,
     handleSeparatePo,
     handleEditPo,
     handleDeletePo,
@@ -356,6 +357,32 @@ export function OrderManagementView({
     () => currentDrafts.filter((d) => !d.archivedAt).map((d) => d.id),
     [currentDrafts],
   );
+
+  /** Open POs for the active supplier that inbox lines can be merged into (not done/completed/archived). */
+  const mergeablePurchaseOrders = useMemo(() => {
+    const vd = patchedViewDataMap[activeKey];
+    if (!vd || vd.type !== 'post') return [];
+    return vd.purchaseOrders.filter(
+      (po) =>
+        po.id !== 'new' &&
+        !po.archivedAt &&
+        po.status !== 'completed' &&
+        !isOfficePoDeliveryDone(po),
+    );
+  }, [patchedViewDataMap, activeKey]);
+
+  /** Inbox lines currently checked for inclusion — drives the merge dialog summary. */
+  const mergeIncludedLineCount = useMemo(() => {
+    let n = 0;
+    for (const d of currentDrafts) {
+      if (d.archivedAt) continue;
+      const inc = draftInclusions[d.id];
+      n += d.lineItems.filter((li, idx) =>
+        inc ? inc[idx] : li.includeInPo,
+      ).length;
+    }
+    return n;
+  }, [currentDrafts, draftInclusions]);
 
   const isReplacementOrderEntry = useMemo(
     () => currentDrafts.length > 0 && currentDrafts.every((d) => d.isReplacementOrder),
@@ -1562,6 +1589,9 @@ export function OrderManagementView({
           poPrintHeadline={poPrintHeadline}
           lineItemsLoading={lineItemsLoading}
           inboxShopifyOrderIds={metaInboxShopifyOrderIds}
+          mergeablePurchaseOrders={mergeablePurchaseOrders}
+          mergeIncludedLineCount={mergeIncludedLineCount}
+          onMergeIntoPo={handleMergeIntoPo}
           onDeleteReplacementOrder={
             isReplacementOrderEntry ? handleDeleteReplacementOrder : undefined
           }

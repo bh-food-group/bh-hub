@@ -159,6 +159,94 @@ export function patchSupplierEntryAfterPoCreate(args: {
 }
 
 /**
+ * Replaces a target PO block with the server-returned block (after inbox lines were
+ * merged in) and drops the merged drafts from that supplier slice — so the Inbox and
+ * the PO update immediately before `router.refresh()` lands.
+ */
+export function mergeViewDataWithOptimisticPoMerges(
+  viewDataMap: Record<SupplierKey, ViewData>,
+  merges: Readonly<
+    Partial<
+      Record<
+        SupplierKey,
+        { poId: string; updatedBlock: OfficePurchaseOrderBlock; removedDraftIds: ReadonlySet<string> } | undefined
+      >
+    >
+  >,
+  supplierNameByKey: Readonly<Record<SupplierKey, string>>,
+): Record<SupplierKey, ViewData> {
+  let any = false;
+  const out: Record<SupplierKey, ViewData> = { ...viewDataMap };
+
+  for (const key of Object.keys(viewDataMap)) {
+    const merge = merges[key];
+    if (!merge) continue;
+
+    const vd = viewDataMap[key];
+    if (!vd || vd.type !== 'post') continue;
+    if (!vd.purchaseOrders.some((p) => p.id === merge.poId)) continue;
+
+    const nextPos = vd.purchaseOrders.map((p) =>
+      p.id === merge.poId ? clonePoBlock(merge.updatedBlock) : p,
+    );
+
+    const drafts = vd.shopifyOrderDrafts ?? [];
+    const nextDrafts = drafts.filter((d) => !merge.removedDraftIds.has(d.id));
+
+    const supplierName = supplierNameByKey[key] ?? 'Supplier';
+    const preserveLabels = { label: vd.label, extraLabel: vd.extraLabel };
+    const basePost = decoratePostViewMultiPo(nextPos, supplierName);
+    const next: PostViewData = {
+      ...preserveLabels,
+      ...basePost,
+      ...(nextDrafts.length > 0 ? { shopifyOrderDrafts: nextDrafts } : {}),
+    };
+
+    any = true;
+    out[key] = next;
+  }
+
+  return any ? out : viewDataMap;
+}
+
+/** Bumps sidebar/meta counters after a successful inbox→existing-PO merge. */
+export function patchSupplierEntryAfterPoMerge(args: {
+  entry: SupplierEntry;
+  oldBlock: OfficePurchaseOrderBlock | undefined;
+  newBlock: OfficePurchaseOrderBlock;
+  removedDraftIds: ReadonlySet<string>;
+  removedDrafts: ReadonlyArray<{ id: string; archivedAt?: string | null }>;
+}): SupplierEntry {
+  const { entry, oldBlock, newBlock, removedDraftIds, removedDrafts } = args;
+
+  const removedOpenDraftCount = removedDrafts.filter(
+    (d) => removedDraftIds.has(d.id) && !d.archivedAt,
+  ).length;
+  const nextDraftCount = Math.max(0, entry.withoutPoDraftCount - removedOpenDraftCount);
+
+  const oldM = oldBlock?.panelMeta;
+  const newM = newBlock.panelMeta;
+  const doneDelta = (newM?.fulfillDoneCount ?? 0) - (oldM?.fulfillDoneCount ?? 0);
+  const totalDelta = (newM?.fulfillTotalCount ?? 0) - (oldM?.fulfillTotalCount ?? 0);
+
+  const fulfillDone = Math.max(0, entry.fulfillDoneCount + doneDelta);
+  const fulfillTotal = Math.max(0, entry.fulfillTotalCount + totalDelta);
+  const fulfillPending = Math.max(0, fulfillTotal - fulfillDone);
+  const allFulfilled = fulfillTotal > 0 && fulfillPending === 0;
+
+  return {
+    ...entry,
+    poCreated: true,
+    withoutPoDraftCount: nextDraftCount,
+    fulfillDoneCount: fulfillDone,
+    fulfillPendingCount: fulfillPending,
+    fulfillTotalCount: fulfillTotal,
+    allFulfilled,
+    allCompleted: false,
+  };
+}
+
+/**
  * Removes PO rows that were optimistically deleted before `router.refresh()` lands.
  */
 export function mergeViewDataWithOptimisticPoDeletes(

@@ -736,6 +736,19 @@ export const purchaseOrderUpdateSchema = z.object({
 export type PurchaseOrderCreateBody = z.infer<typeof purchaseOrderCreateSchema>;
 export type PurchaseOrderUpdateBody = z.infer<typeof purchaseOrderUpdateSchema>;
 
+/**
+ * POST /api/order/purchase-orders/[id]/merge-inbox — append inbox draft lines (and
+ * link their Shopify orders) onto an existing open PO.
+ */
+export const purchaseOrderMergeInboxSchema = z.object({
+  lineItems: z.array(purchaseOrderLineItemSchema).min(1),
+  shopifyOrderRefs: z.array(shopifyOrderRefSchema).optional().default([]),
+});
+
+export type PurchaseOrderMergeInboxBody = z.infer<
+  typeof purchaseOrderMergeInboxSchema
+>;
+
 // ─── Delivery location presets (many `locations` may share one preset) ─────
 
 export const deliveryLocationPresetCreateSchema = z.object({

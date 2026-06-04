@@ -12,8 +12,10 @@ import type {
 import {
   mergeViewDataWithOptimisticPoCreates,
   mergeViewDataWithOptimisticPoDeletes,
+  mergeViewDataWithOptimisticPoMerges,
   patchSupplierEntryAfterPoCreate,
   patchSupplierEntryAfterPoDelete,
+  patchSupplierEntryAfterPoMerge,
 } from '../utils/merge-optimistic-po-create';
 import { mergeViewDataWithOptimisticEmailSent } from '../utils/merge-view-data-optimistic-email-sent';
 import { mergeViewDataWithOptimisticEmailWaived } from '../utils/merge-view-data-optimistic-email-waived';
@@ -87,6 +89,7 @@ export type OptimisticOrderActions = {
   applyPanelEdit: (poId: string, fields: EditPoFields) => OptimisticPoPanelEditPatch | null;
   rollbackPanelEdit: (poId: string) => void;
   applyPoCreate: (key: SupplierKey, block: OfficePurchaseOrderBlock, removedDraftIds: string[], setStates: (fn: (prev: Record<SupplierKey, SupplierEntry>) => Record<SupplierKey, SupplierEntry>) => void) => void;
+  applyPoMerge: (key: SupplierKey, poId: string, updatedBlock: OfficePurchaseOrderBlock, oldBlock: OfficePurchaseOrderBlock | undefined, removedDraftIds: string[], removedDrafts: ReadonlyArray<{ id: string; archivedAt?: string | null }>, setStates: (fn: (prev: Record<SupplierKey, SupplierEntry>) => Record<SupplierKey, SupplierEntry>) => void) => void;
   applyPoDelete: (poId: string, supplierKey: SupplierKey | null, deleted: OfficePurchaseOrderBlock | undefined, remainingPoBlocks: OfficePurchaseOrderBlock[], setStates: (fn: (prev: Record<SupplierKey, SupplierEntry>) => Record<SupplierKey, SupplierEntry>) => void) => void;
   rollbackPoDelete: (poId: string, supplierKey: SupplierKey | null, snapshot: SupplierEntry | undefined, setStates: (fn: (prev: Record<SupplierKey, SupplierEntry>) => Record<SupplierKey, SupplierEntry>) => void) => void;
   clearPoCreate: (key: SupplierKey, poId: string) => void;
@@ -117,6 +120,9 @@ export function useOptimisticOrderState(
   const [optimisticPoPatchesByKey, setOptimisticPoPatchesByKey] = useState<
     Partial<Record<SupplierKey, { newBlock: OfficePurchaseOrderBlock; removedDraftIds: string[] }>>
   >({});
+  const [optimisticPoMergesByKey, setOptimisticPoMergesByKey] = useState<
+    Partial<Record<SupplierKey, { poId: string; updatedBlock: OfficePurchaseOrderBlock; removedDraftIds: string[] }>>
+  >({});
   const [optimisticEmailSentAtByPoId, setOptimisticEmailSentAtByPoId] = useState<Record<string, string>>({});
   const [optimisticEmailWaivedAtByPoId, setOptimisticEmailWaivedAtByPoId] = useState<Record<string, string>>({});
   const [optimisticEmailWaivedClearPoIds, setOptimisticEmailWaivedClearPoIds] = useState<Record<string, true>>({});
@@ -133,6 +139,7 @@ export function useOptimisticOrderState(
     setOptimisticArchivedOrderIds(new Set());
     setOptimisticUnarchivedOrderIds(new Set());
     setOptimisticPoPatchesByKey({});
+    setOptimisticPoMergesByKey({});
     setOptimisticEmailSentAtByPoId({});
     setOptimisticEmailWaivedAtByPoId({});
     setOptimisticEmailWaivedClearPoIds({});
@@ -161,6 +168,15 @@ export function useOptimisticOrderState(
     return out;
   }, [optimisticPoPatchesByKey]);
 
+  const optimisticPoMergeSets = useMemo(() => {
+    const out: Partial<Record<SupplierKey, { poId: string; updatedBlock: OfficePurchaseOrderBlock; removedDraftIds: ReadonlySet<string> }>> = {};
+    for (const [k, v] of Object.entries(optimisticPoMergesByKey)) {
+      if (!v) continue;
+      out[k as SupplierKey] = { poId: v.poId, updatedBlock: v.updatedBlock, removedDraftIds: new Set(v.removedDraftIds) };
+    }
+    return out;
+  }, [optimisticPoMergesByKey]);
+
   const viewDataAfterDraftArchive = useMemo(
     () => mergeViewDataWithOptimisticDraftArchive(viewDataMap, optimisticArchivedOrderIds, optimisticUnarchivedOrderIds),
     [viewDataMap, optimisticArchivedOrderIds, optimisticUnarchivedOrderIds],
@@ -168,7 +184,8 @@ export function useOptimisticOrderState(
 
   const patchedViewDataMap = useMemo(() => {
     const afterPoCreates = mergeViewDataWithOptimisticPoCreates(viewDataAfterDraftArchive, optimisticPoPatchSets, supplierCompanyByKey);
-    const afterDeletes = mergeViewDataWithOptimisticPoDeletes(afterPoCreates, optimisticDeletedPurchaseOrderIds, supplierCompanyByKey);
+    const afterPoMerges = mergeViewDataWithOptimisticPoMerges(afterPoCreates, optimisticPoMergeSets, supplierCompanyByKey);
+    const afterDeletes = mergeViewDataWithOptimisticPoDeletes(afterPoMerges, optimisticDeletedPurchaseOrderIds, supplierCompanyByKey);
     const afterEmailSent = mergeViewDataWithOptimisticEmailSent(afterDeletes, optimisticEmailSentAtByPoId);
     const waivedClearSet = new Set(Object.keys(optimisticEmailWaivedClearPoIds));
     const afterEmailWaived = mergeViewDataWithOptimisticEmailWaived(afterEmailSent, optimisticEmailWaivedAtByPoId, waivedClearSet);
@@ -176,7 +193,7 @@ export function useOptimisticOrderState(
     const afterPoPanelEdit = mergeViewDataWithOptimisticPoPanelEdits(afterPoHubStatus, optimisticPoPanelEditByPoId);
     return mergeViewDataWithLazyLineItems(afterPoPanelEdit, lazyPoLineItems);
   }, [
-    viewDataAfterDraftArchive, optimisticPoPatchSets, supplierCompanyByKey,
+    viewDataAfterDraftArchive, optimisticPoPatchSets, optimisticPoMergeSets, supplierCompanyByKey,
     optimisticDeletedPurchaseOrderIds, optimisticEmailSentAtByPoId,
     optimisticEmailWaivedAtByPoId, optimisticEmailWaivedClearPoIds,
     optimisticPoHubStatusByPoId, optimisticPoPanelEditByPoId, lazyPoLineItems,
@@ -270,6 +287,14 @@ export function useOptimisticOrderState(
         const e = prev[key];
         if (!e) return prev;
         return { ...prev, [key]: patchSupplierEntryAfterPoCreate({ entry: e, newBlock: block, removedDraftIds: new Set(removedDraftIds), removedDrafts: [] }) };
+      });
+    },
+    applyPoMerge: (key, poId, updatedBlock, oldBlock, removedDraftIds, removedDrafts, setStates) => {
+      setOptimisticPoMergesByKey((prev) => ({ ...prev, [key]: { poId, updatedBlock, removedDraftIds } }));
+      setStates((prev) => {
+        const e = prev[key];
+        if (!e) return prev;
+        return { ...prev, [key]: patchSupplierEntryAfterPoMerge({ entry: e, oldBlock, newBlock: updatedBlock, removedDraftIds: new Set(removedDraftIds), removedDrafts }) };
       });
     },
     applyPoDelete: (poId, supplierKey, deleted, remainingPoBlocks, setStates) => {
