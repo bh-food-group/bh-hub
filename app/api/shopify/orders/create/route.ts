@@ -95,6 +95,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // syncOneOrder resolves the FulfillmentOrder location → shopifyLocationGid
+    // internally (builds its own admin client), so vendor+location supplier
+    // mappings resolve immediately instead of landing under "Unassigned".
     const synced = await syncOneOrder(node);
 
     // Patch unitCost for custom line items — Shopify has no cost field for non-variant items.

@@ -68,6 +68,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
           lineItems: 'sync',
         });
         if (!node) return false;
+        // syncOneOrder resolves each line item's FulfillmentOrder location
+        // internally, so edited/added items keep their vendor+location supplier
+        // mapping instead of falling into "Unassigned".
         await syncOneOrder(node);
         return true;
       })();

@@ -16,6 +16,8 @@ import {
 } from '@/lib/order/purchase-order-status';
 import type { AdminApiClient } from '@shopify/admin-api-client';
 import { fetchFulfillmentOrderLocations } from '@/lib/shopify/fetchFulfillmentOrderLocations';
+import { createShopifyAdminGraphqlClient } from '@/lib/shopify/createFulfillment';
+import { getShopifyAdminEnv, isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
 
 function parseOrderNumber(name: string | null): number {
   if (!name) return 0;
@@ -305,9 +307,15 @@ export async function upsertShopifyOrder(
 }
 
 /**
- * Full pipeline: upsert customer → upsert order + line items.
- * When `shopifyAdminClient` is provided, also fetches FulfillmentOrder location data
- * and writes shopifyLocationGid onto each line item.
+ * Full pipeline: upsert customer → upsert order + line items, then resolve each
+ * line item's FulfillmentOrder location → `shopifyLocationGid`. The location is
+ * required for vendor+location supplier mappings; without it those orders fall
+ * back to vendor-only mapping and land under "Unassigned".
+ *
+ * Pass `shopifyAdminClient` to reuse a client across orders (bulk sync); when
+ * omitted, one is built from env so single-order callers (order create/edit)
+ * still resolve the location. If Shopify admin env is not configured, the
+ * location step is skipped.
  */
 export async function syncOneOrder(
   order: ShopifyOrderNode,
@@ -316,8 +324,14 @@ export async function syncOneOrder(
   const customerId = await upsertShopifyCustomer(order);
   const result = await upsertShopifyOrder(order, customerId);
 
-  if (shopifyAdminClient) {
-    const locationMap = await fetchFulfillmentOrderLocations(shopifyAdminClient, order.id);
+  const client =
+    shopifyAdminClient ??
+    (isShopifyAdminEnvConfigured()
+      ? createShopifyAdminGraphqlClient(getShopifyAdminEnv())
+      : null);
+
+  if (client) {
+    const locationMap = await fetchFulfillmentOrderLocations(client, order.id);
     if (locationMap.size > 0) {
       await Promise.all(
         Array.from(locationMap.entries()).map(([shopifyGid, locationGid]) =>
