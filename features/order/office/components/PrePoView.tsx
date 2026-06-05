@@ -16,6 +16,8 @@ type Props = {
   onUnarchiveShopifyOrder?: (shopifyOrderDbId: string) => void;
   /** When editing drafts under a PO tab, pass PO id for Shopify save + resync. */
   purchaseOrderId?: string | null;
+  /** Selected supplier bucket id — scopes each order's "Add line" search to that supplier. */
+  supplierId?: string | null;
   /** Per-line PO note drafts (same order/length as `order.lineItems`). */
   draftLineNotes?: Record<string, string[]>;
   onLineItemNoteChange?: (orderId: string, itemIdx: number, value: string) => void;
@@ -36,6 +38,7 @@ export function PrePoView({
   showArchived,
   onUnarchiveShopifyOrder,
   purchaseOrderId,
+  supplierId,
   draftLineNotes,
   onLineItemNoteChange,
   defaultSeparatePoNumberForOrder,
@@ -102,6 +105,7 @@ export function PrePoView({
           showArchived={showArchived}
           onUnarchiveShopifyOrder={onUnarchiveShopifyOrder}
           purchaseOrderId={purchaseOrderId ?? undefined}
+          supplierId={supplierId ?? undefined}
           lineItemNotes={draftLineNotes?.[order.id]}
           onLineItemNoteChange={
             onLineItemNoteChange

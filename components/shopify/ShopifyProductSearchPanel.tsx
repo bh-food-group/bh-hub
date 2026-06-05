@@ -75,6 +75,12 @@ export type ShopifyProductSearchPanelProps = {
   className?: string;
   /** Max height of the results list. */
   resultsMaxHeightClassName?: string;
+  /**
+   * Extra query params appended to every search request (e.g. `{ supplierId }`
+   * or `{ purchaseOrderId }` to scope results to one supplier's vendors).
+   * Entries with empty/undefined values are skipped.
+   */
+  extraParams?: Record<string, string | null | undefined>;
 };
 
 export function ShopifyProductSearchPanel({
@@ -85,7 +91,10 @@ export function ShopifyProductSearchPanel({
   searchPlaceholder = 'Search products…',
   className,
   resultsMaxHeightClassName = 'max-h-56',
+  extraParams,
 }: ShopifyProductSearchPanelProps) {
+  // Stable dependency for the search effect — re-run when scope params change.
+  const extraParamsKey = JSON.stringify(extraParams ?? {});
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [hits, setHits] = useState<ShopifyProductSearchHit[]>([]);
@@ -120,6 +129,9 @@ export function ShopifyProductSearchPanel({
       const sp = new URLSearchParams();
       sp.set('q', query);
       if (includeShopifyDrafts) sp.set('includeDraft', '1');
+      for (const [k, v] of Object.entries(extraParams ?? {})) {
+        if (v != null && v !== '') sp.set(k, v);
+      }
       const url = `${searchPath}?${sp.toString()}`;
       const res = await fetch(url, { signal: ac.signal });
       const data = (await res.json().catch(() => ({}))) as {
@@ -151,7 +163,9 @@ export function ShopifyProductSearchPanel({
         setLoading(false);
       }
     }
-  }, [debouncedQ, minQueryLength, searchPath, includeShopifyDrafts]);
+    // extraParamsKey is the stable serialization of extraParams (object identity changes each render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, minQueryLength, searchPath, includeShopifyDrafts, extraParamsKey]);
 
   useEffect(() => {
     void runSearch();

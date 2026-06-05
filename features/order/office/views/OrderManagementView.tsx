@@ -353,6 +353,17 @@ export function OrderManagementView({
   // Keep refs in sync so usePoMutations callbacks always read the latest values
   currentDraftsRef.current = currentDrafts;
 
+  /**
+   * Supplier id of the active inbox bucket (key = `custId::supplierId`). Used to
+   * scope each order's "Add line" product search; null for the without-PO /
+   * unassigned buckets, which have no single supplier to filter by.
+   */
+  const selectedSupplierId = useMemo(() => {
+    const sid = activeKey.split('::')[1] ?? '';
+    if (!sid || sid === 'without-po' || sid === '__unassigned__') return null;
+    return sid;
+  }, [activeKey]);
+
   const metaInboxShopifyOrderIds = useMemo(
     () => currentDrafts.filter((d) => !d.archivedAt).map((d) => d.id),
     [currentDrafts],
@@ -1519,6 +1530,7 @@ export function OrderManagementView({
                     viewData.purchaseOrders[0]
                   )?.id ?? null
                 }
+                supplierId={selectedSupplierId}
                 draftLineNotes={draftLineNotes}
                 onLineItemNoteChange={handleLineItemNoteChange}
                 defaultSeparatePoNumberForOrder={
@@ -1546,6 +1558,7 @@ export function OrderManagementView({
               onSeparatePo={handleSeparatePo}
               showArchived={showArchived}
               onUnarchiveShopifyOrder={handleUnarchiveShopifyOrder}
+              supplierId={selectedSupplierId}
               draftLineNotes={draftLineNotes}
               onLineItemNoteChange={handleLineItemNoteChange}
               defaultSeparatePoNumberForOrder={defaultSeparatePoNumberForOrder}

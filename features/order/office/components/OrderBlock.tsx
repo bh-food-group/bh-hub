@@ -58,6 +58,12 @@ type Props = {
   onUnarchiveShopifyOrder?: (shopifyOrderDbId: string) => void;
   /** When saving from a PO context, pass PO id so server can resync lines. */
   purchaseOrderId?: string | null;
+  /**
+   * Supplier bucket this order block belongs to (from the inbox sidebar). Scopes
+   * the "Add line" product search to that supplier's vendors; null/undefined in
+   * the unassigned bucket leaves the search unscoped.
+   */
+  supplierId?: string | null;
   /** Inbox: per-line PO note text (default + edits); parallel to `order.lineItems`. */
   lineItemNotes?: string[];
   onLineItemNoteChange?: (itemIdx: number, value: string) => void;
@@ -103,6 +109,7 @@ export function OrderBlock({
   showArchived,
   onUnarchiveShopifyOrder,
   purchaseOrderId,
+  supplierId,
   lineItemNotes,
   onLineItemNoteChange,
 }: Props) {
@@ -855,7 +862,10 @@ export function OrderBlock({
           <DialogHeader>
             <DialogTitle className="text-sm">Add line</DialogTitle>
           </DialogHeader>
-          <ShopifyProductSearchPanel onSelect={(h) => addSearchHit(h)} />
+          <ShopifyProductSearchPanel
+            onSelect={(h) => addSearchHit(h)}
+            extraParams={{ supplierId }}
+          />
         </DialogContent>
       </Dialog>
     </div>

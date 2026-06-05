@@ -1581,7 +1581,10 @@ export function PoTable({
           <DialogHeader>
             <DialogTitle className="text-sm">Add PO line (Shopify)</DialogTitle>
           </DialogHeader>
-          <ShopifyProductSearchPanel onSelect={(h) => addSearchHitToPo(h)} />
+          <ShopifyProductSearchPanel
+            onSelect={(h) => addSearchHitToPo(h)}
+            extraParams={{ purchaseOrderId: purchaseOrder.id }}
+          />
         </DialogContent>
       </Dialog>
 

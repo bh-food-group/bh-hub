@@ -142,31 +142,52 @@ function normalizeProductStatus(raw: string | undefined | null): OfficeProductSe
   return 'ACTIVE';
 }
 
+/**
+ * Builds a `(vendor:'A' OR vendor:'B')` clause to scope a product search to one
+ * supplier's vendor name(s). Returns null when there are no usable names, so the
+ * caller leaves the query unscoped. Single quotes/backslashes are escaped for
+ * Shopify's search syntax.
+ */
+function shopifyVendorScopeClause(vendorNames: readonly string[] | undefined): string | null {
+  if (!vendorNames || vendorNames.length === 0) return null;
+  const parts = Array.from(
+    new Set(vendorNames.map((v) => v.trim()).filter((v) => v.length > 0)),
+  ).map((v) => `vendor:'${v.replace(/(['\\])/g, '\\$1')}'`);
+  if (parts.length === 0) return null;
+  return parts.length === 1 ? parts[0] : `(${parts.join(' OR ')})`;
+}
+
 function shopifySearchQueryWithStatusScope(
   userQuery: string,
   includeDrafts: boolean,
+  vendorNames?: readonly string[],
 ): string {
   const q = userQuery.trim();
   const statusPart = includeDrafts ? '(status:active OR status:draft)' : 'status:active';
-  if (!q) return statusPart;
-  return `${q} AND ${statusPart}`;
+  const vendorPart = shopifyVendorScopeClause(vendorNames);
+  return [q || null, statusPart, vendorPart].filter(Boolean).join(' AND ');
 }
 
-function shopifyDraftCountQueryForSearch(userQuery: string): string {
+function shopifyDraftCountQueryForSearch(
+  userQuery: string,
+  vendorNames?: readonly string[],
+): string {
   const q = userQuery.trim();
-  return q ? `${q} AND status:draft` : 'status:draft';
+  const vendorPart = shopifyVendorScopeClause(vendorNames);
+  return [q || null, 'status:draft', vendorPart].filter(Boolean).join(' AND ');
 }
 
 export async function fetchDraftProductCountForOfficeSearch(
   creds: ShopifyAdminCredentials,
   userQuery: string,
+  opts?: { vendorNames?: readonly string[] },
 ): Promise<number> {
   const client = createAdminApiClient({
     storeDomain: creds.shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, ''),
     apiVersion: creds.apiVersion,
     accessToken: creds.accessToken,
   });
-  const query = shopifyDraftCountQueryForSearch(userQuery);
+  const query = shopifyDraftCountQueryForSearch(userQuery, opts?.vendorNames);
   const { data, errors } = await client.request<OfficeProductsCountData>(PRODUCTS_COUNT, {
     variables: { query },
   });
@@ -187,7 +208,7 @@ export async function searchProductsForOffice(
   creds: ShopifyAdminCredentials,
   query: string,
   first = 15,
-  opts?: { includeDrafts?: boolean },
+  opts?: { includeDrafts?: boolean; vendorNames?: readonly string[] },
 ): Promise<OfficeProductSearchVariantHit[]> {
   const client = createAdminApiClient({
     storeDomain: creds.shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, ''),
@@ -195,7 +216,11 @@ export async function searchProductsForOffice(
     accessToken: creds.accessToken,
   });
 
-  const scopedQuery = shopifySearchQueryWithStatusScope(query, Boolean(opts?.includeDrafts));
+  const scopedQuery = shopifySearchQueryWithStatusScope(
+    query,
+    Boolean(opts?.includeDrafts),
+    opts?.vendorNames,
+  );
 
   const { data, errors } = await client.request<OfficeProductSearchData>(PRODUCTS_SEARCH, {
     variables: { first, query: scopedQuery },
@@ -239,7 +264,7 @@ export async function searchProductsForOffice(
 export function searchProductsForOfficeFromEnv(
   query: string,
   first?: number,
-  opts?: { includeDrafts?: boolean },
+  opts?: { includeDrafts?: boolean; vendorNames?: readonly string[] },
 ) {
   return searchProductsForOffice(getShopifyAdminEnv(), query, first, opts);
 }

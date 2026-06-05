@@ -278,6 +278,7 @@ export function CreateReplacementOrderDialog({
                   onSelect={handleProductSelect}
                   searchPlaceholder="Search products to add…"
                   resultsMaxHeightClassName="max-h-48"
+                  extraParams={{ purchaseOrderId: sourcePOId }}
                 />
               </div>
             )}
