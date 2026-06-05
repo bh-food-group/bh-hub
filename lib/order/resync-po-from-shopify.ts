@@ -13,6 +13,10 @@ import {
 import { deletePurchaseOrderLineItemIfNoFinalizedFulfillments } from '@/lib/order/purchase-order-line-item-delete-if-safe';
 import { recomputePurchaseOrderStatusById } from '@/lib/order/purchase-order-status';
 import { loadVariantOfficeNotesMap } from '@/lib/order/shopify-variant-office-note';
+import {
+  buildVendorLookup,
+  supplierIdForLineItem,
+} from '@/features/order/office/mappers/vendor-supplier-map';
 
 export type ResyncPurchaseOrderFromShopifyOptions = {
   purchaseOrderId: string;
@@ -69,7 +73,6 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: purchaseOrderId },
     include: {
-      supplier: { select: { shopifyVendorName: true } },
       lineItems: { orderBy: { sequence: 'asc' } },
       shopifyOrders: { select: { id: true } },
     },
@@ -77,8 +80,6 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
   if (!po) return;
 
   const linkedOrderIds = new Set(po.shopifyOrders.map((o) => o.id));
-  const vendorNorm =
-    po.supplier?.shopifyVendorName?.trim().toLowerCase() ?? null;
 
   const linkedSoliIds = po.lineItems
     .map((l) => l.shopifyOrderLineItemId)
@@ -173,14 +174,25 @@ export async function resyncPurchaseOrderLineItemsFromShopify(
     0,
   );
 
+  // Append must obey the same (vendor + location) → supplier rule as the inbox
+  // bucketing (`supplierIdForLineItem`), NOT a vendor-name-only match. A supplier
+  // defined by an inventory+vendor mapping (vendorName + shopifyLocationGid)
+  // shares its vendor name with lines at other locations that belong to a
+  // different supplier; matching on name alone swept those sibling lines into
+  // this PO on save. Build the global lookup from every ShopifyVendorMapping
+  // (the same source the inbox uses — `Supplier.shopifyVendorName` is mirrored
+  // there as a null-location fallback) and keep only lines that resolve to THIS
+  // PO's supplier.
+  const vendorMappings = await prisma.shopifyVendorMapping.findMany({
+    select: { vendorName: true, supplierId: true, shopifyLocationGid: true },
+  });
+  const vendorLookups = buildVendorLookup(vendorMappings);
+
   const appendCandidates = orderWithLines.lineItems.filter((li) => {
     if (li.quantity <= 0) return false;
     if (usedShopifyLineIds.has(li.id)) return false;
-    if (vendorNorm) {
-      const v = li.vendor?.trim().toLowerCase() ?? '';
-      if (v && v !== vendorNorm) return false;
-    }
-    return true;
+    if (!po.supplierId) return false;
+    return supplierIdForLineItem(li, vendorLookups) === po.supplierId;
   });
   const appendVariantGids = appendCandidates
     .map((li) => li.variantGid?.trim())
