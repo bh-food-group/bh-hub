@@ -96,12 +96,32 @@ export async function GET(request: NextRequest) {
     const todayIso = zonedTodayIsoForClover();
     const isPastWeek = endDate < todayIso;
 
+    // Daily revenue targets (the remaining-to-target overlay). Fast path: read the
+    // instance-local L1 cache that location-cards warms. That cache is globalThis-scoped,
+    // so on Vercel the location-cards instance that warmed it may differ from the one
+    // serving this request — a cold read here is common and would drop the target overlay
+    // entirely (no remaining-to-target, chart shows only the actual amount). So fall back
+    // to a direct DB read on miss: the snapshot is 2-3 indexed queries and this route
+    // already runs the multi-second Clover fetch, so the extra query is negligible. The
+    // read self-dedupes (inflight map) and warms L1 for subsequent requests.
+    //
+    // The target overlay is layered onto the response here, NOT frozen into the past-week
+    // cache below. This keeps daily targets reflecting the latest budget and prevents a
+    // cold-snapshot read from permanently stripping remaining-to-target off a cached week.
+    let snapshot = await getRevenueTargetSnapshot(locationId, yearMonth, {
+      cacheOnly: true,
+    });
+    if (!snapshot) {
+      snapshot = await getRevenueTargetSnapshot(locationId, yearMonth);
+    }
+
     if (isPastWeek) {
       const cached = await prisma.cloverWeeklyCache.findUnique({
         where: { locationId_weekStartDate: { locationId, weekStartDate: startDate } },
         select: { dataJson: true },
       });
       if (cached) {
+        const cachedData = JSON.parse(cached.dataJson) as RevenuePeriodData;
         return NextResponse.json({
           ok: true,
           partial: false,
@@ -109,7 +129,10 @@ export async function GET(request: NextRequest) {
           weekOffset,
           startDate,
           endDate,
-          data: JSON.parse(cached.dataJson) as RevenuePeriodData,
+          data: mergeDailyRevenueTargetsIntoWeeklyData(
+            cachedData,
+            snapshot?.dailyTargetsByDate,
+          ),
         });
       }
     }
@@ -117,22 +140,13 @@ export async function GET(request: NextRequest) {
     // phase=1: fast path — payments + prevPayments only, no order items.
     const isPhase1 = phase === '1';
 
-    // cacheOnly: true — never hit DB from this route.
-    // location-cards is the single owner of the DB query + Vercel Data Cache write.
-    // On cold cache, snapshot is null → chart renders without target overlay (graceful).
-    // After location-cards Phase 1 runs, Vercel Data Cache is warm → next load shows targets.
-    const [snapshot, raw] = await Promise.all([
-      getRevenueTargetSnapshot(locationId, yearMonth, { cacheOnly: true }),
-      getCloverWeeklyRevenueData(locationId, yearMonth, weekOffset, {
-        includeOrderItems: !isPhase1,
-      }),
-    ]);
-    const data = mergeDailyRevenueTargetsIntoWeeklyData(
-      raw,
-      snapshot?.dailyTargetsByDate,
-    );
+    const raw = await getCloverWeeklyRevenueData(locationId, yearMonth, weekOffset, {
+      includeOrderItems: !isPhase1,
+    });
 
-    // Cache completed past weeks that have full data (phase=2 only).
+    // Cache completed past weeks that have full data (phase=2 only). Store the raw
+    // revenue data WITHOUT the target overlay — targets are merged on read so they
+    // always reflect the current budget and never get frozen out by a cold snapshot.
     if (isPastWeek && !isPhase1 && !raw.cloverError && !raw.cloverNotConfigured) {
       void prisma.cloverWeeklyCache.upsert({
         where: { locationId_weekStartDate: { locationId, weekStartDate: startDate } },
@@ -140,16 +154,21 @@ export async function GET(request: NextRequest) {
           locationId,
           weekStartDate: startDate,
           weekEndDate: endDate,
-          dataJson: JSON.stringify(data),
+          dataJson: JSON.stringify(raw),
           cachedAt: new Date(),
         },
         update: {
           weekEndDate: endDate,
-          dataJson: JSON.stringify(data),
+          dataJson: JSON.stringify(raw),
           cachedAt: new Date(),
         },
       });
     }
+
+    const data = mergeDailyRevenueTargetsIntoWeeklyData(
+      raw,
+      snapshot?.dailyTargetsByDate,
+    );
 
     return NextResponse.json({
       ok: true,
