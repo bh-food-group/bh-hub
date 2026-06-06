@@ -55,15 +55,27 @@ export type BudgetCascade = {
   shortfall: number;
 };
 
-export type DayResponse = {
+export type PerWeekdayPreview = {
+  dow: number;
+  label: string;
+  count: number;
+  dailyForecast: number;
+  laborBudget: number;
+  ptLaborFee: number;
+  affordableHrs: number;
+  blocked: boolean;
+};
+
+export type MonthResponse = {
   locationId: string;
-  date: string;
-  forecastMissing: boolean;
-  fixedPayrollMissing: boolean;
+  yearMonth: string;
   revenueForecast: number;
   fixedPayroll: number;
-  cascade: BudgetCascade;
+  forecastMissing: boolean;
+  fixedPayrollMissing: boolean;
+  dailyFixedPayroll: number;
   settings: ResolvedLaborSettings;
+  perWeekday: PerWeekdayPreview[];
 };
 
 export type EnginePlan = {
@@ -76,7 +88,12 @@ export type EnginePlan = {
 export type PlanResult = {
   date: string;
   dow: number;
+  yearMonth: string;
   cascade: BudgetCascade;
+  monthlyForecast: number;
+  monthlyFixedPayroll: number;
+  dailyForecast: number;
+  dailyFixedPayroll: number;
   engine?: EnginePlan;
   sales: { s: number[]; sampleN: number[] };
   settings: LaborEngineSettings;
@@ -164,23 +181,23 @@ export const laborApi = {
       jsonOrThrow<HeatmapResponse>,
     ),
 
-  getDay: (location: string, date: string) =>
-    fetch(`/api/labor/day?${q({ location, date })}`).then(
-      jsonOrThrow<DayResponse>,
+  getMonth: (location: string, yearMonth: string) =>
+    fetch(`/api/labor/month?${q({ location, yearMonth })}`).then(
+      jsonOrThrow<MonthResponse>,
     ),
 
-  saveForecast: (location: string, date: string, amount: number) =>
+  saveForecast: (location: string, yearMonth: string, amount: number) =>
     fetch('/api/labor/forecast', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ location, date, amount }),
+      body: JSON.stringify({ location, yearMonth, amount }),
     }).then(jsonOrThrow<{ ok: true }>),
 
-  saveFixedPayroll: (location: string, date: string, amount: number) =>
+  saveFixedPayroll: (location: string, yearMonth: string, amount: number) =>
     fetch('/api/labor/fixed-payroll', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ location, date, amount }),
+      body: JSON.stringify({ location, yearMonth, amount }),
     }).then(jsonOrThrow<{ ok: true }>),
 
   generatePlan: (location: string, date: string) =>
@@ -189,6 +206,13 @@ export const laborApi = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ location, date }),
     }).then(jsonOrThrow<{ locationId: string; plan: PlanResult }>),
+
+  getWeekSchedule: (location: string, weekStart: string) =>
+    fetch(
+      `/api/labor/week-schedule?${q({ location, week_start: weekStart })}`,
+    ).then(
+      jsonOrThrow<{ locationId: string; weekStart: string; plans: PlanResult[] }>,
+    ),
 
   getWeek: (location: string, weekStart: string) =>
     fetch(`/api/labor/week?${q({ location, week_start: weekStart })}`).then(

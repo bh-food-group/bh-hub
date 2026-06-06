@@ -7,9 +7,16 @@ a labor budget, shaped by historical sales by hour. Ships dark behind a flag.
 
 ```
 Clover net sales (trailing 8 wks) ─avg by (weekday,hour)→ Sales heatmap   (Stage A)
-Revenue forecast ×budget% → labor budget − fixed payroll → PT labor fee   (Stage B)
-PT fee → coverage curve (sales-weighted) → pack into shifts → table       (Stage C)
+Monthly forecast → split to days (weekday sales weight); monthly fixed
+  payroll → split evenly (÷ days in month)
+Daily forecast ×budget% → labor budget − daily fixed payroll → PT labor fee (Stage B)
+PT fee → coverage curve (sales-weighted) → pack into shifts → table        (Stage C)
 ```
+
+**Monthly inputs:** `revenue_forecasts` and `fixed_payroll` are keyed by
+`year_month`. The cascade distributes them per day: revenue by the day's weekday
+sales mix (`weekdayDailyAverages`), fixed payroll evenly. See
+`features/labor/data/distribution.ts`.
 
 ## Layout
 
@@ -20,10 +27,13 @@ PT fee → coverage curve (sales-weighted) → pack into shifts → table       
   Clover hourly ingest, heatmap (trimmed mean), budget cascade, plan persistence,
   weekly rollup.
 - **API** (app-layer auth, location-scoped): `app/api/labor/*` — `heatmap`,
-  `forecast` (office), `fixed-payroll` (manager), `plan` (+ `plan/[id]`), `week`,
-  `day`, `settings`, `exclusions`. Guard: `lib/labor/api-auth.ts`.
+  `forecast` (office, monthly), `fixed-payroll` (manager, monthly), `plan`
+  (+ `plan/[id]`), `week`, `week-schedule` (7 full day plans), `month`,
+  `settings`, `exclusions`. Guard: `lib/labor/api-auth.ts`.
 - **UI** (English only): `app/(main)/labor/*` + `features/labor/components/*` —
-  Schedule, Budget Planner, Sales Heatmap, Settings tabs. Nav item in `HeaderNav`.
+  Schedule (pick a week → day tabs Sun–Sat → that day's colored table), Budget
+  Planner (monthly inputs + per-weekday distribution + weekly rollup), Sales
+  Heatmap, Settings tabs. Nav item in `HeaderNav`.
 - **Nightly cron**: `app/api/cron/labor-heatmap` (in `vercel.json`, 13:00 UTC).
 
 ## Architecture notes (vs. the brief)

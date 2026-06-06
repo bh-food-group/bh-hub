@@ -13,18 +13,17 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { laborApi, type DayResponse, type WeekRollup } from './api';
+import { laborApi, type MonthResponse, type WeekRollup } from './api';
 import { hrs, usd } from './format';
 
 type Props = {
   locationId: string;
   role: UserRole | null;
   isOfficeOrAdmin: boolean;
-  date: string;
+  date: string; // shared anchor; its month drives the inputs
   onDateChange: (date: string) => void;
 };
 
-/** Sunday (dow=0) of the week containing `date`, as YYYY-MM-DD. */
 function weekStartOf(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   d.setDate(d.getDate() - d.getDay());
@@ -40,7 +39,8 @@ export function BudgetPlannerPanel({
   date,
   onDateChange,
 }: Props) {
-  const [day, setDay] = useState<DayResponse | null>(null);
+  const yearMonth = date.slice(0, 7);
+  const [month, setMonth] = useState<MonthResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [forecast, setForecast] = useState('');
   const [payroll, setPayroll] = useState('');
@@ -56,16 +56,16 @@ export function BudgetPlannerPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await laborApi.getDay(locationId, date);
-      setDay(res);
+      const res = await laborApi.getMonth(locationId, yearMonth);
+      setMonth(res);
       setForecast(res.forecastMissing ? '' : String(res.revenueForecast));
       setPayroll(res.fixedPayrollMissing ? '' : String(res.fixedPayroll));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load day');
+      toast.error(e instanceof Error ? e.message : 'Failed to load month');
     } finally {
       setLoading(false);
     }
-  }, [locationId, date]);
+  }, [locationId, yearMonth]);
 
   useEffect(() => {
     void load();
@@ -74,13 +74,13 @@ export function BudgetPlannerPanel({
   async function saveForecast() {
     const amount = Number.parseFloat(forecast);
     if (!Number.isFinite(amount) || amount < 0) {
-      toast.error('Enter a valid forecast amount');
+      toast.error('Enter a valid monthly forecast');
       return;
     }
     setSavingForecast(true);
     try {
-      await laborApi.saveForecast(locationId, date, amount);
-      toast.success('Revenue forecast saved');
+      await laborApi.saveForecast(locationId, yearMonth, amount);
+      toast.success('Monthly revenue forecast saved');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to save forecast');
@@ -92,13 +92,13 @@ export function BudgetPlannerPanel({
   async function savePayroll() {
     const amount = Number.parseFloat(payroll);
     if (!Number.isFinite(amount) || amount < 0) {
-      toast.error('Enter a valid fixed payroll amount');
+      toast.error('Enter a valid monthly fixed payroll');
       return;
     }
     setSavingPayroll(true);
     try {
-      await laborApi.saveFixedPayroll(locationId, date, amount);
-      toast.success('Fixed payroll saved');
+      await laborApi.saveFixedPayroll(locationId, yearMonth, amount);
+      toast.success('Monthly fixed payroll saved');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to save payroll');
@@ -119,18 +119,24 @@ export function BudgetPlannerPanel({
     }
   }
 
-  const cascade = day?.cascade;
-
   return (
     <div className="space-y-5">
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-3">
-          <CardTitle>Daily budget cascade</CardTitle>
+          <div>
+            <CardTitle>Monthly budget inputs</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Entered per month; distributed to days (revenue by weekday sales
+              mix, fixed payroll evenly).
+            </p>
+          </div>
           <Input
-            type="date"
-            value={date}
-            onChange={(e) => onDateChange(e.target.value)}
-            className="w-44"
+            type="month"
+            value={yearMonth}
+            onChange={(e) =>
+              e.target.value && onDateChange(`${e.target.value}-01`)
+            }
+            className="w-40"
           />
         </CardHeader>
         <CardContent className="space-y-5">
@@ -141,9 +147,10 @@ export function BudgetPlannerPanel({
           )}
 
           <div className="grid gap-5 sm:grid-cols-2">
-            {/* Revenue forecast — office input */}
             <div className="space-y-1.5">
-              <Label htmlFor="forecast">Revenue forecast (office)</Label>
+              <Label htmlFor="forecast">
+                Monthly revenue forecast (office)
+              </Label>
               <div className="flex gap-2">
                 <Input
                   id="forecast"
@@ -171,9 +178,8 @@ export function BudgetPlannerPanel({
               )}
             </div>
 
-            {/* Fixed payroll — manager input */}
             <div className="space-y-1.5">
-              <Label htmlFor="payroll">Fixed payroll (manager)</Label>
+              <Label htmlFor="payroll">Monthly fixed payroll (manager)</Label>
               <div className="flex gap-2">
                 <Input
                   id="payroll"
@@ -202,35 +208,67 @@ export function BudgetPlannerPanel({
             </div>
           </div>
 
-          {cascade && (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border-t pt-4 text-sm md:grid-cols-4">
-              <Derived label="Labor budget" hint="forecast × budget %">
-                {usd(cascade.laborBudget)}
-              </Derived>
-              <Derived label="PT labor fee" hint="budget − fixed payroll">
-                {cascade.blocked ? (
-                  <span className="text-destructive">{usd(cascade.ptLaborFee)}</span>
-                ) : (
-                  usd(cascade.ptLaborFee)
-                )}
-              </Derived>
-              <Derived label="Affordable hours" hint="PT fee ÷ wage">
-                {hrs(cascade.affordableHrs)}
-              </Derived>
-              <Derived label="Budget %" hint="setting">
-                {(cascade.budgetPct * 100).toFixed(1)}%
-              </Derived>
-            </dl>
-          )}
-
-          {cascade?.blocked && (
-            <p className="text-sm text-destructive">
-              Fixed payroll meets or exceeds the labor budget (shortfall{' '}
-              {usd(cascade.shortfall)}). A schedule cannot be generated.
+          {month && (
+            <p className="text-sm text-muted-foreground">
+              Daily fixed payroll: {usd(month.dailyFixedPayroll)} (monthly ÷{' '}
+              days in month)
             </p>
           )}
         </CardContent>
       </Card>
+
+      {month && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Per-weekday distribution</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              How the monthly forecast lands on each weekday this month.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">Weekday</th>
+                  <th className="py-2 pr-4 text-right font-medium"># in month</th>
+                  <th className="py-2 pr-4 text-right font-medium">Day forecast</th>
+                  <th className="py-2 pr-4 text-right font-medium">Labor budget</th>
+                  <th className="py-2 pr-4 text-right font-medium">PT fee</th>
+                  <th className="py-2 text-right font-medium">Affordable hrs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {month.perWeekday.map((d) => (
+                  <tr key={d.dow} className="border-b last:border-0">
+                    <td className="py-1.5 pr-4">{d.label}</td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">
+                      {d.count}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">
+                      {usd(d.dailyForecast)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">
+                      {usd(d.laborBudget)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">
+                      {d.blocked ? (
+                        <span className="text-destructive">
+                          {usd(d.ptLaborFee)}
+                        </span>
+                      ) : (
+                        usd(d.ptLaborFee)
+                      )}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums">
+                      {hrs(d.affordableHrs)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-3">
@@ -296,24 +334,6 @@ export function BudgetPlannerPanel({
           </CardContent>
         )}
       </Card>
-    </div>
-  );
-}
-
-function Derived({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-semibold tabular-nums">{children}</dd>
-      <p className="text-[11px] text-muted-foreground">{hint}</p>
     </div>
   );
 }

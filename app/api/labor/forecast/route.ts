@@ -1,16 +1,16 @@
-// POST /api/labor/forecast  → upsert a daily revenue forecast (OFFICE/ADMIN only)
+// POST /api/labor/forecast  → upsert a MONTHLY revenue forecast (OFFICE/ADMIN only)
 //
-// body: { location: string, date: "YYYY-MM-DD", amount: number }
+// body: { location: string, yearMonth: "YYYY-MM", amount: number }
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/core';
 import { getLaborAuthContext } from '@/lib/labor/api-auth';
-import { isValidDate } from '@/features/labor/data';
+import { isValidYearMonth } from '@/features/labor/data';
 
 const Body = z.object({
   location: z.string().min(1),
-  date: z.string().refine(isValidDate, 'date must be YYYY-MM-DD'),
+  yearMonth: z.string().refine(isValidYearMonth, 'yearMonth must be YYYY-MM'),
   amount: z.number().nonnegative(),
 });
 
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { location, date, amount } = parsed.data;
+  const { location, yearMonth, amount } = parsed.data;
 
   const ctx = await getLaborAuthContext(location);
   if (!ctx.ok) {
@@ -38,15 +38,20 @@ export async function POST(request: NextRequest) {
   }
 
   await prisma.revenueForecast.upsert({
-    where: { locationId_date: { locationId: ctx.locationId, date } },
+    where: { locationId_yearMonth: { locationId: ctx.locationId, yearMonth } },
     create: {
       locationId: ctx.locationId,
-      date,
+      yearMonth,
       amount,
       createdById: ctx.userId,
     },
     update: { amount, createdById: ctx.userId },
   });
 
-  return NextResponse.json({ ok: true, locationId: ctx.locationId, date, amount });
+  return NextResponse.json({
+    ok: true,
+    locationId: ctx.locationId,
+    yearMonth,
+    amount,
+  });
 }

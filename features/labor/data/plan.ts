@@ -1,8 +1,8 @@
 /**
- * Orchestrates a daily plan: read inputs (heatmap row, forecast, fixed payroll),
- * run the budget cascade (Stage B) and the pure engine (Stage C), then persist
- * `labor_plans` + shifts + coverage. The engine stays pure; this module is the
- * DB-facing seam.
+ * Orchestrates a daily plan. Forecast and fixed payroll are entered MONTHLY and
+ * distributed to the day (weekday-weighted revenue, evenly-spread payroll) before
+ * the Stage B cascade and the pure Stage C engine run. The engine stays pure;
+ * this module is the DB-facing seam.
  */
 import { prisma } from '@/lib/core';
 import { zonedWeekdaySun0ForIsoDate, getCloverReportTimeZone } from '@/lib/clover/report-timezone';
@@ -11,9 +11,19 @@ import {
   type EnginePlan,
   type LaborEngineSettings,
 } from '@/features/labor/engine';
-import { getLaborSettings, toEngineSettings } from './settings';
-import { salesVectorForDow } from './heatmap';
+import {
+  getLaborSettings,
+  toEngineSettings,
+  type ResolvedLaborSettings,
+} from './settings';
+import { salesVectorForDow, weekdayDailyAverages } from './heatmap';
 import { computeBudgetCascade, type BudgetCascade } from './budget';
+import {
+  dailyFixedPayrollShare,
+  dailyForecastShare,
+  monthWeekdayCounts,
+  yearMonthOf,
+} from './distribution';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -23,61 +33,110 @@ export function isValidDate(date: string): boolean {
   return Number.isFinite(t);
 }
 
+export type MonthlyInputs = {
+  yearMonth: string;
+  revenueForecast: number;
+  fixedPayroll: number;
+  forecastMissing: boolean;
+  fixedPayrollMissing: boolean;
+};
+
+export async function getMonthlyInputs(
+  locationId: string,
+  yearMonth: string,
+): Promise<MonthlyInputs> {
+  const [forecastRow, payrollRow] = await Promise.all([
+    prisma.revenueForecast.findUnique({
+      where: { locationId_yearMonth: { locationId, yearMonth } },
+      select: { amount: true },
+    }),
+    prisma.fixedPayroll.findUnique({
+      where: { locationId_yearMonth: { locationId, yearMonth } },
+      select: { amount: true },
+    }),
+  ]);
+  return {
+    yearMonth,
+    revenueForecast: forecastRow ? Number(forecastRow.amount) : 0,
+    fixedPayroll: payrollRow ? Number(payrollRow.amount) : 0,
+    forecastMissing: !forecastRow,
+    fixedPayrollMissing: !payrollRow,
+  };
+}
+
 export type PlanResult = {
   date: string;
   dow: number;
+  yearMonth: string;
   cascade: BudgetCascade;
-  /** Present unless the plan was blocked by an unaffordable baseline payroll. */
+  /** Monthly inputs the day's numbers were derived from. */
+  monthlyForecast: number;
+  monthlyFixedPayroll: number;
+  /** Day's distributed share of the monthly inputs. */
+  dailyForecast: number;
+  dailyFixedPayroll: number;
   engine?: EnginePlan;
-  /** Per-operating-hour sales averages and sample counts used as engine input. */
   sales: { s: number[]; sampleN: number[] };
   settings: LaborEngineSettings;
-  /** DRAFT | OVER_BUDGET | BLOCKED (PUBLISHED only after an explicit publish). */
   status: 'DRAFT' | 'OVER_BUDGET' | 'BLOCKED';
-  /** Set when status === 'BLOCKED'. */
   shortfall?: number;
-  /** Persisted plan id (null when blocked — nothing is stored). */
   planId: string | null;
   forecastMissing: boolean;
   fixedPayrollMissing: boolean;
 };
 
-/**
- * Generate (and persist) the plan for one location + date. Persists nothing when
- * blocked. Re-running replaces the prior plan for that date.
- */
+/** Single-day plan (computes its own shared inputs). */
 export async function generatePlan(
   locationId: string,
   date: string,
 ): Promise<PlanResult> {
+  const yearMonth = yearMonthOf(date);
+  const [resolved, weekdayDailyAvg, monthly] = await Promise.all([
+    getLaborSettings(locationId),
+    weekdayDailyAverages(locationId),
+    getMonthlyInputs(locationId, yearMonth),
+  ]);
+  return runDayPlan({
+    locationId,
+    date,
+    resolved,
+    weekdayDailyAvg,
+    monthly,
+    monthCounts: monthWeekdayCounts(yearMonth),
+  });
+}
+
+/** Core per-day plan with shared inputs supplied by the caller. */
+export async function runDayPlan(params: {
+  locationId: string;
+  date: string;
+  resolved: ResolvedLaborSettings;
+  weekdayDailyAvg: number[];
+  monthly: MonthlyInputs;
+  monthCounts: number[];
+}): Promise<PlanResult> {
+  const { locationId, date, resolved, weekdayDailyAvg, monthly, monthCounts } =
+    params;
   const tz = getCloverReportTimeZone();
   const dow = zonedWeekdaySun0ForIsoDate(date, tz);
-
-  const resolved = await getLaborSettings(locationId);
   const settings = toEngineSettings(resolved);
 
-  const [sales, forecastRow, payrollRow] = await Promise.all([
-    salesVectorForDow(locationId, dow),
-    prisma.revenueForecast.findUnique({
-      where: { locationId_date: { locationId, date } },
-      select: { amount: true },
-    }),
-    prisma.fixedPayroll.findUnique({
-      where: { locationId_date: { locationId, date } },
-      select: { amount: true },
-    }),
-  ]);
+  const sales = await salesVectorForDow(locationId, dow);
 
-  const revenueForecast = forecastRow
-    ? Number.parseFloat(forecastRow.amount.toString())
-    : 0;
-  const fixedPayroll = payrollRow
-    ? Number.parseFloat(payrollRow.amount.toString())
-    : 0;
+  const dailyForecast = dailyForecastShare({
+    monthlyForecast: monthly.revenueForecast,
+    dow,
+    weekdayDailyAvg,
+    monthCounts,
+  });
+  const dailyFixedPayroll = dailyFixedPayrollShare(
+    monthly.fixedPayroll,
+    monthly.yearMonth,
+  );
 
   const cascade = computeBudgetCascade({
-    revenueForecast,
-    fixedPayroll,
+    revenueForecast: dailyForecast,
+    fixedPayroll: dailyFixedPayroll,
     budgetPct: resolved.budgetPct,
     wage: resolved.wage,
   });
@@ -85,11 +144,16 @@ export async function generatePlan(
   const base = {
     date,
     dow,
+    yearMonth: monthly.yearMonth,
     cascade,
+    monthlyForecast: monthly.revenueForecast,
+    monthlyFixedPayroll: monthly.fixedPayroll,
+    dailyForecast,
+    dailyFixedPayroll,
     sales,
     settings,
-    forecastMissing: !forecastRow,
-    fixedPayrollMissing: !payrollRow,
+    forecastMissing: monthly.forecastMissing,
+    fixedPayrollMissing: monthly.fixedPayrollMissing,
   };
 
   // Edge case: payroll consumes the whole budget → block, don't persist.

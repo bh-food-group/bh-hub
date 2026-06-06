@@ -1137,30 +1137,32 @@ model SalesSampleExclusion {
   @@schema("labor")
 }
 
-/// Revenue forecast for a date (office role writes; manager/admin read).
+/// Monthly revenue forecast (office role writes; manager/admin read).
+/// Distributed to days by weekday sales weight in the budget cascade.
 model RevenueForecast {
   locationId  String   @map("location_id")
-  date        String   @map("date")
+  yearMonth   String   @map("year_month")
   amount      Decimal  @map("amount") @db.Decimal(14, 2)
   createdById String?  @map("created_by")
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
   location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  @@id([locationId, date])
+  @@id([locationId, yearMonth])
   @@map("revenue_forecasts")
   @@schema("labor")
 }
 
-/// Fixed payroll for a date (manager role writes; office/admin read).
+/// Monthly fixed payroll (manager role writes; office/admin read).
+/// Spread evenly across the month's days in the budget cascade.
 model FixedPayroll {
   locationId  String   @map("location_id")
-  date        String   @map("date")
+  yearMonth   String   @map("year_month")
   amount      Decimal  @map("amount") @db.Decimal(14, 2)
   createdById String?  @map("created_by")
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
   location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  @@id([locationId, date])
+  @@id([locationId, yearMonth])
   @@map("fixed_payroll")
   @@schema("labor")
 }

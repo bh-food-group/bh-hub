@@ -1,6 +1,6 @@
-// POST /api/labor/fixed-payroll  → upsert daily fixed payroll (MANAGER only)
+// POST /api/labor/fixed-payroll  → upsert MONTHLY fixed payroll (MANAGER only)
 //
-// body: { location: string, date: "YYYY-MM-DD", amount: number }
+// body: { location: string, yearMonth: "YYYY-MM", amount: number }
 //
 // Admin is also permitted (operational override); office is not — fixed payroll
 // is the store manager's input per the brief's permission split.
@@ -9,11 +9,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/core';
 import { getLaborAuthContext } from '@/lib/labor/api-auth';
-import { isValidDate } from '@/features/labor/data';
+import { isValidYearMonth } from '@/features/labor/data';
 
 const Body = z.object({
   location: z.string().min(1),
-  date: z.string().refine(isValidDate, 'date must be YYYY-MM-DD'),
+  yearMonth: z.string().refine(isValidYearMonth, 'yearMonth must be YYYY-MM'),
   amount: z.number().nonnegative(),
 });
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { location, date, amount } = parsed.data;
+  const { location, yearMonth, amount } = parsed.data;
 
   const ctx = await getLaborAuthContext(location);
   if (!ctx.ok) {
@@ -41,15 +41,20 @@ export async function POST(request: NextRequest) {
   }
 
   await prisma.fixedPayroll.upsert({
-    where: { locationId_date: { locationId: ctx.locationId, date } },
+    where: { locationId_yearMonth: { locationId: ctx.locationId, yearMonth } },
     create: {
       locationId: ctx.locationId,
-      date,
+      yearMonth,
       amount,
       createdById: ctx.userId,
     },
     update: { amount, createdById: ctx.userId },
   });
 
-  return NextResponse.json({ ok: true, locationId: ctx.locationId, date, amount });
+  return NextResponse.json({
+    ok: true,
+    locationId: ctx.locationId,
+    yearMonth,
+    amount,
+  });
 }

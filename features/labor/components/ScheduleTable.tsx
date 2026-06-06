@@ -107,8 +107,12 @@ export function ScheduleTable({ table, wage, ptLaborFee, affordableHrs }: Props)
                         type="button"
                         onClick={() => toggle(rowIdx, colIdx)}
                         className={cn(
-                          'h-full w-full px-2 py-1.5 tabular-nums transition-colors hover:bg-accent',
-                          v > 0 ? 'font-medium' : 'text-transparent',
+                          'h-full w-full px-2 py-1.5 tabular-nums transition-colors',
+                          v === 1 &&
+                            'bg-emerald-500/80 font-semibold text-white hover:bg-emerald-500',
+                          v === 0.5 &&
+                            'bg-emerald-300/70 font-medium text-emerald-950 hover:bg-emerald-300',
+                          v === 0 && 'text-muted-foreground/40 hover:bg-accent',
                         )}
                       >
                         {v === 0 ? '·' : v}

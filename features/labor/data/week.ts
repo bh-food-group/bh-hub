@@ -1,10 +1,20 @@
 /**
- * Weekly rollup (secondary to the daily flow): run the cascade + engine for each
- * of the 7 days from `weekStart` and sum them. Built on top of generatePlan so
- * the daily and weekly numbers can never diverge.
+ * Weekly generation. `generateWeekPlans` runs the full engine for each of the 7
+ * days (shared inputs computed once) and returns the complete plans — this backs
+ * the Schedule screen's per-day tabs. `generateWeek` derives the lightweight
+ * budget rollup from the same plans so daily and weekly numbers never diverge.
  */
 import { addDays, format, parseISO } from 'date-fns';
-import { generatePlan, isValidDate, type PlanResult } from './plan';
+import { getLaborSettings } from './settings';
+import { weekdayDailyAverages } from './heatmap';
+import { monthWeekdayCounts, yearMonthOf } from './distribution';
+import {
+  getMonthlyInputs,
+  runDayPlan,
+  isValidDate,
+  type MonthlyInputs,
+  type PlanResult,
+} from './plan';
 
 export type WeekDay = {
   date: string;
@@ -32,33 +42,79 @@ export type WeekRollup = {
   };
 };
 
+/** The 7 ISO dates of the week starting at `weekStart`. */
+function weekDates(weekStart: string): string[] {
+  return Array.from({ length: 7 }, (_, i) =>
+    format(addDays(parseISO(weekStart), i), 'yyyy-MM-dd'),
+  );
+}
+
+/**
+ * Full plans for all 7 days. Settings + weekday averages are fetched once;
+ * monthly inputs + weekday counts are fetched once per distinct month (a week may
+ * straddle a month boundary).
+ */
+export async function generateWeekPlans(
+  locationId: string,
+  weekStart: string,
+): Promise<PlanResult[]> {
+  if (!isValidDate(weekStart)) {
+    throw new Error('weekStart must be YYYY-MM-DD');
+  }
+  const dates = weekDates(weekStart);
+
+  const [resolved, weekdayDailyAvg] = await Promise.all([
+    getLaborSettings(locationId),
+    weekdayDailyAverages(locationId),
+  ]);
+
+  // Cache monthly inputs + counts per distinct year-month in the week.
+  const months = new Map<
+    string,
+    { monthly: MonthlyInputs; monthCounts: number[] }
+  >();
+  for (const ym of new Set(dates.map(yearMonthOf))) {
+    months.set(ym, {
+      monthly: await getMonthlyInputs(locationId, ym),
+      monthCounts: monthWeekdayCounts(ym),
+    });
+  }
+
+  const plans: PlanResult[] = [];
+  for (const date of dates) {
+    const month = months.get(yearMonthOf(date))!;
+    plans.push(
+      await runDayPlan({
+        locationId,
+        date,
+        resolved,
+        weekdayDailyAvg,
+        monthly: month.monthly,
+        monthCounts: month.monthCounts,
+      }),
+    );
+  }
+  return plans;
+}
+
 export async function generateWeek(
   locationId: string,
   weekStart: string,
 ): Promise<WeekRollup> {
-  if (!isValidDate(weekStart)) {
-    throw new Error('weekStart must be YYYY-MM-DD');
-  }
-  const dates = Array.from({ length: 7 }, (_, i) =>
-    format(addDays(parseISO(weekStart), i), 'yyyy-MM-dd'),
-  );
+  const plans = await generateWeekPlans(locationId, weekStart);
 
-  const days: WeekDay[] = [];
-  for (const date of dates) {
-    const plan = await generatePlan(locationId, date);
-    days.push({
-      date,
-      status: plan.status,
-      laborBudget: plan.cascade.laborBudget,
-      fixedPayroll: plan.cascade.fixedPayroll,
-      ptLaborFee: Math.max(0, plan.cascade.ptLaborFee),
-      affordableHrs: plan.engine?.coverage.affordableHrs ?? 0,
-      scheduledHrs: plan.engine?.table.footer.totalPtHours ?? 0,
-      scheduledCost: plan.engine?.table.footer.totalPtCost ?? 0,
-      forecastMissing: plan.forecastMissing,
-      fixedPayrollMissing: plan.fixedPayrollMissing,
-    });
-  }
+  const days: WeekDay[] = plans.map((plan) => ({
+    date: plan.date,
+    status: plan.status,
+    laborBudget: plan.cascade.laborBudget,
+    fixedPayroll: plan.cascade.fixedPayroll,
+    ptLaborFee: Math.max(0, plan.cascade.ptLaborFee),
+    affordableHrs: plan.engine?.coverage.affordableHrs ?? 0,
+    scheduledHrs: plan.engine?.table.footer.totalPtHours ?? 0,
+    scheduledCost: plan.engine?.table.footer.totalPtCost ?? 0,
+    forecastMissing: plan.forecastMissing,
+    fixedPayrollMissing: plan.fixedPayrollMissing,
+  }));
 
   const totals = days.reduce(
     (acc, d) => ({

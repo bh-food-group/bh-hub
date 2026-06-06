@@ -155,6 +155,27 @@ export async function readHeatmap(locationId: string): Promise<HeatmapCell[]> {
 }
 
 /**
+ * Average daily net sales per weekday (0=Sun..6=Sat) = sum of the heatmap row
+ * over operating hours. Used to weight the monthly revenue forecast onto days.
+ */
+export async function weekdayDailyAverages(
+  locationId: string,
+): Promise<number[]> {
+  const settings = await getLaborSettings(locationId);
+  const hours = new Set(operatingHours(settings));
+  const rows = await prisma.salesHeatmapCache.findMany({
+    where: { locationId },
+    select: { dow: true, hour: true, avgNetSales: true },
+  });
+  const totals = new Array<number>(7).fill(0);
+  for (const r of rows) {
+    if (!hours.has(r.hour)) continue;
+    totals[r.dow] += Number.parseFloat(r.avgNetSales.toString());
+  }
+  return totals;
+}
+
+/**
  * The sales vector `s[]` for a specific weekday, aligned to the location's
  * operating hours — the engine input for a given date.
  */

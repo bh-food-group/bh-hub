@@ -13,9 +13,30 @@ export {
   rebuildHeatmap,
   readHeatmap,
   salesVectorForDow,
+  weekdayDailyAverages,
   trimmedMean,
   type HeatmapCell,
 } from './heatmap';
 export { computeBudgetCascade, type BudgetCascade } from './budget';
-export { generatePlan, isValidDate, type PlanResult } from './plan';
-export { generateWeek, type WeekRollup, type WeekDay } from './week';
+export {
+  isValidYearMonth,
+  yearMonthOf,
+  daysInMonth,
+  monthWeekdayCounts,
+  dailyForecastShare,
+  dailyFixedPayrollShare,
+} from './distribution';
+export {
+  generatePlan,
+  getMonthlyInputs,
+  runDayPlan,
+  isValidDate,
+  type PlanResult,
+  type MonthlyInputs,
+} from './plan';
+export {
+  generateWeek,
+  generateWeekPlans,
+  type WeekRollup,
+  type WeekDay,
+} from './week';
