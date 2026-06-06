@@ -13,9 +13,11 @@ import {
 const HeaderNav = ({
   className,
   role,
+  showLabor,
 }: PropsWithChildren<
   ClassName & {
     role: UserRole | null;
+    showLabor?: boolean;
   }
 >) => {
   return (
@@ -41,6 +43,7 @@ const HeaderNav = ({
             <HeaderNavItem href="/cost">Cost</HeaderNavItem>
           </>
         )}
+        {showLabor && <HeaderNavItem href="/labor">Labor</HeaderNavItem>}
       </div>
       {getOfficeOrAdmin(role) && (
         <div className="flex items-center gap-2">

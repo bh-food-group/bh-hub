@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["audit", "cost", "dashboard", "delivery", "inventory", "order", "public"]
+  schemas  = ["audit", "cost", "dashboard", "delivery", "inventory", "labor", "order", "public"]
 }
 
 model Account {
@@ -65,28 +65,35 @@ model Realm {
 }
 
 model Location {
-  id                  String                   @id @default(cuid())
-  code                String                   @unique
-  name                String
-  createdAt           DateTime                 @default(now()) @map("created_at")
-  classId             String?                  @map("class_id")
-  realmId             String                   @map("realm_id")
-  startYearMonth      String?                  @map("start_year_month")
-  showBudget          Boolean                  @default(true) @map("show_budget")
-  cloverMerchantId    String?                  @map("clover_merchant_id")
-  cloverToken         String?                  @map("clover_token")
+  id                       String                  @id @default(cuid())
+  code                     String                  @unique
+  name                     String
+  createdAt                DateTime                @default(now()) @map("created_at")
+  classId                  String?                 @map("class_id")
+  realmId                  String                  @map("realm_id")
+  startYearMonth           String?                 @map("start_year_month")
+  showBudget               Boolean                 @default(true) @map("show_budget")
+  cloverMerchantId         String?                 @map("clover_merchant_id")
+  cloverToken              String?                 @map("clover_token")
   /// Representative customer email used to place Shopify orders for this location.
   /// Location order page filters orders by this, regardless of the viewer's login email.
-  orderEmail          String?                  @map("order_email")
-  budgets             Budget[]
-  laborTargets        LaborTarget[]
-  revenueAnnualGoals  RevenueAnnualGoal[]
-  revenueMonthTargets RevenueMonthTarget[]
-  cloverWeeklyCaches  CloverWeeklyCache[]
-  realm               Realm                    @relation(fields: [realmId], references: [id])
-  users               User[]
+  orderEmail               String?                 @map("order_email")
+  budgets                  Budget[]
+  laborTargets             LaborTarget[]
+  revenueAnnualGoals       RevenueAnnualGoal[]
+  revenueMonthTargets      RevenueMonthTarget[]
+  cloverWeeklyCaches       CloverWeeklyCache[]
+  laborSettings            LaborSettings?
+  cloverSalesHourly        CloverSalesHourly[]
+  salesHeatmapCache        SalesHeatmapCache[]
+  salesSampleExclusions    SalesSampleExclusion[]
+  revenueForecasts         RevenueForecast[]
+  fixedPayrolls            FixedPayroll[]
+  laborPlans               LaborPlan[]
+  realm                    Realm                   @relation(fields: [realmId], references: [id])
+  users                    User[]
   /// Optional default ship-to preset shared with other locations (many `Location`s may point to the same preset).
-  deliveryLocationPresetId String?               @map("delivery_location_preset_id")
+  deliveryLocationPresetId String?                 @map("delivery_location_preset_id")
   deliveryLocationPreset   DeliveryLocationPreset? @relation(fields: [deliveryLocationPresetId], references: [id], onDelete: SetNull)
 
   @@index([deliveryLocationPresetId])
@@ -119,31 +126,31 @@ model DeliveryLocationPreset {
 }
 
 model User {
-  id              String            @id @default(cuid())
-  name            String?
-  email           String?           @unique
-  emailVerified   DateTime?         @map("email_verified")
-  image           String?
-  role            UserRole?         @default(manager)
-  status          UserStatus        @default(pending_onboarding) @map("status")
-  locationId      String?           @map("location_id")
-  permittedById   String?           @map("permitted_by_id")
-  permittedAt     DateTime?         @map("permitted_at")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  rejectReason    String?           @map("reject_reason")
-  budgetSettings  BudgetSettings[]  @relation("BudgetSettingsUpdatedBy")
-  costEditHistory CostEditHistory[]
-  costMemos       CostMemo[]
-  accounts        Account[]
-  sessions        Session[]
-  location        Location?         @relation(fields: [locationId], references: [id])
-  permittedBy     User?             @relation("UserPermittedBy", fields: [permittedById], references: [id])
-  permittedUsers  User[]            @relation("UserPermittedBy")
+  id                       String                    @id @default(cuid())
+  name                     String?
+  email                    String?                   @unique
+  emailVerified            DateTime?                 @map("email_verified")
+  image                    String?
+  role                     UserRole?                 @default(manager)
+  status                   UserStatus                @default(pending_onboarding) @map("status")
+  locationId               String?                   @map("location_id")
+  permittedById            String?                   @map("permitted_by_id")
+  permittedAt              DateTime?                 @map("permitted_at")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  rejectReason             String?                   @map("reject_reason")
+  budgetSettings           BudgetSettings[]          @relation("BudgetSettingsUpdatedBy")
+  costEditHistory          CostEditHistory[]
+  costMemos                CostMemo[]
+  accounts                 Account[]
+  sessions                 Session[]
+  location                 Location?                 @relation(fields: [locationId], references: [id])
+  permittedBy              User?                     @relation("UserPermittedBy", fields: [permittedById], references: [id])
+  permittedUsers           User[]                    @relation("UserPermittedBy")
   /// delivery.Driver.userId → public.users.id (one driver profile per user)
-  driver          Driver?
+  driver                   Driver?
   /// `order.purchase_orders.created_by_id` — POs created in the hub (not legacy CSV id).
-  purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreatedBy")
+  purchaseOrdersCreated    PurchaseOrder[]           @relation("PurchaseOrderCreatedBy")
   /// `order.refund_replacement_records.created_by_id`
   refundReplacementRecords RefundReplacementRecord[] @relation("RefundReplacementCreatedBy")
 
@@ -677,32 +684,32 @@ model ShopifyOrder {
 }
 
 model ShopifyOrderLineItem {
-  id                     String                  @id @default(cuid())
-  shopifyGid             String                  @unique @map("shopify_gid")
-  orderId                String                  @map("order_id")
-  order                  ShopifyOrder            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  title                  String?
-  sku                    String?
-  variantTitle           String?                 @map("variant_title")
+  id                            String                  @id @default(cuid())
+  shopifyGid                    String                  @unique @map("shopify_gid")
+  orderId                       String                  @map("order_id")
+  order                         ShopifyOrder            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  title                         String?
+  sku                           String?
+  variantTitle                  String?                 @map("variant_title")
   /// Shopify `Product` GID when known (variant’s product or line-level product) — Admin product URLs.
-  productGid             String?                 @map("product_gid")
-  variantGid             String?                 @map("variant_gid")
+  productGid                    String?                 @map("product_gid")
+  variantGid                    String?                 @map("variant_gid")
   /// Product/variant image URL from Shopify (line, variant, or product featured image).
-  imageUrl               String?                 @map("image_url") @db.Text
+  imageUrl                      String?                 @map("image_url") @db.Text
   /// Shopify product vendor name at order creation time (frozen snapshot).
-  vendor                 String?
-  quantity               Int                     @default(0)
-  price                  Decimal?                @db.Decimal(14, 2)
+  vendor                        String?
+  quantity                      Int                     @default(0)
+  price                         Decimal?                @db.Decimal(14, 2)
   /// Variant inventory unit cost (Shopify), when available.
-  unitCost               Decimal?                @map("unit_cost") @db.Decimal(14, 2)
+  unitCost                      Decimal?                @map("unit_cost") @db.Decimal(14, 2)
   /// Shopify Location GID from FulfillmentOrder.assignedLocation — populated during order sync.
-  shopifyLocationGid     String?                 @map("shopify_location_gid")
+  shopifyLocationGid            String?                 @map("shopify_location_gid")
   /// For custom orders only: the PO line item this line was created from (hub-only, no FK constraint).
-  sourcePurchaseOrderLineItemId String?          @map("source_purchase_order_line_item_id")
-  createdAt              DateTime                @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime               @updatedAt @map("updated_at") @db.Timestamptz
-  purchaseOrderLineItems PurchaseOrderLineItem[]
-  fulfillmentLineItems   FulfillmentLineItem[]
+  sourcePurchaseOrderLineItemId String?                 @map("source_purchase_order_line_item_id")
+  createdAt                     DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                     DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+  purchaseOrderLineItems        PurchaseOrderLineItem[]
+  fulfillmentLineItems          FulfillmentLineItem[]
 
   @@index([orderId])
   @@index([sourcePurchaseOrderLineItemId])
@@ -728,35 +735,35 @@ model SupplierGroup {
 }
 
 model Supplier {
-  id                String                 @id @default(cuid())
+  id                   String                 @id @default(cuid())
   /// Shopify product vendor name (matched during import or manual link).
-  shopifyVendorName String?                @unique @map("shopify_vendor_name")
-  company           String
+  shopifyVendorName    String?                @unique @map("shopify_vendor_name")
+  company              String
   /// Short code in default PO numbers; if null, `company` is used (never supplier group name).
-  officePoSupplierCode String?             @map("office_po_supplier_code")
-  groupId           String?                @map("group_id")
-  group             SupplierGroup?         @relation(fields: [groupId], references: [id])
-  contactName       String?                @map("contact_name")
+  officePoSupplierCode String?                @map("office_po_supplier_code")
+  groupId              String?                @map("group_id")
+  group                SupplierGroup?         @relation(fields: [groupId], references: [id])
+  contactName          String?                @map("contact_name")
   /// One or more supplier contact emails (ordering / comm).
-  contactEmails     String[]               @default([]) @map("contact_emails")
-  contactPhone      String?                @map("contact_phone")
+  contactEmails        String[]               @default([]) @map("contact_emails")
+  contactPhone         String?                @map("contact_phone")
   /// Preferred communication channel (email, chat, sms).
-  preferredCommMode String?                @map("preferred_comm_mode")
-  isFavorite        Boolean                @default(false) @map("is_favorite")
+  preferredCommMode    String?                @map("preferred_comm_mode")
+  isFavorite           Boolean                @default(false) @map("is_favorite")
   /// External ordering URL (e.g. supplier's website for placing orders).
-  link              String?
-  notes             String?                @db.Text
-  purchaseOrders    PurchaseOrder[]
-  vendorMappings    ShopifyVendorMapping[]
-  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+  link                 String?
+  notes                String?                @db.Text
+  purchaseOrders       PurchaseOrder[]
+  vendorMappings       ShopifyVendorMapping[]
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz
 
   /// email | order_link | direct_instruction (extensible string).
-  orderChannelType    String  @default("email") @map("order_channel_type")
+  orderChannelType    String @default("email") @map("order_channel_type")
   /// Mode-specific JSON (contact, URLs, instructions).
-  orderChannelPayload Json?   @map("order_channel_payload")
+  orderChannelPayload Json?  @map("order_channel_payload")
   /// Default PO expected delivery: ISO weekdays 1–7 (Mon–Sun), rule — see `supplier-delivery-schedule` zod.
-  deliverySchedule    Json?   @map("delivery_schedule")
+  deliverySchedule    Json?  @map("delivery_schedule")
 
   @@index([groupId])
   @@map("suppliers")
@@ -785,11 +792,11 @@ model ShopifyVendorMapping {
 
 /// Default PO line / PDF note per Shopify catalog variant (Admin `ProductVariant` GID).
 model ShopifyVariantOfficeNote {
-  id                 String   @id @default(cuid())
-  shopifyVariantGid  String   @unique @map("shopify_variant_gid")
-  note               String   @db.Text
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  id                String   @id @default(cuid())
+  shopifyVariantGid String   @unique @map("shopify_variant_gid")
+  note              String   @db.Text
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("shopify_variant_office_notes")
   @@schema("order")
@@ -798,62 +805,62 @@ model ShopifyVariantOfficeNote {
 // --- Purchase Orders ---
 
 model PurchaseOrder {
-  id                    String                  @id @default(cuid())
+  id                       String                    @id @default(cuid())
   /// Shopify app PO id from export `ID` column (stable key for idempotent import).
-  legacyExternalId      Int?                    @unique @map("legacy_external_id")
-  poNumber              String                  @unique @map("po_number")
+  legacyExternalId         Int?                      @unique @map("legacy_external_id")
+  poNumber                 String                    @unique @map("po_number")
   /// customer = driven by Shopify orders, stock = office stocking without customer orders.
-  poType                String                  @default("customer") @map("po_type")
+  poType                   String                    @default("customer") @map("po_type")
   /// pending | unfulfilled | partially_fulfilled | fulfilled | completed
-  status                String                  @default("unfulfilled")
-  currency              String
-  isAuto                Boolean                 @default(false) @map("is_auto")
-  displayTaxColumn      Boolean                 @default(false) @map("display_tax_column")
+  status                   String                    @default("unfulfilled")
+  currency                 String
+  isAuto                   Boolean                   @default(false) @map("is_auto")
+  displayTaxColumn         Boolean                   @default(false) @map("display_tax_column")
   /// PO note — office UI, printed PO PDF, outbound PO email attachment.
-  comment               String?                 @db.Text
-  authorizedBy          String?                 @map("authorized_by")
-  unitsOrdered          Int?                    @map("units_ordered")
-  dateCreated           DateTime?               @map("date_created") @db.Date
-  expectedDate          DateTime?               @map("expected_date") @db.Date
-  subtotalPrice         Decimal?                @map("subtotal_price") @db.Decimal(14, 2)
-  discount              Decimal?                @map("discount") @db.Decimal(14, 2)
-  discountReason        String?                 @map("discount_reason") @db.Text
-  shippingHandlingPrice Decimal?                @map("shipping_handling_price") @db.Decimal(14, 2)
-  totalTaxPrice         Decimal?                @map("total_tax_price") @db.Decimal(14, 2)
-  totalPrice            Decimal?                @map("total_price") @db.Decimal(14, 2)
-  sourceCreatedAt       DateTime?               @map("source_created_at") @db.Timestamptz
-  sourceUpdatedAt       DateTime?               @map("source_updated_at") @db.Timestamptz
+  comment                  String?                   @db.Text
+  authorizedBy             String?                   @map("authorized_by")
+  unitsOrdered             Int?                      @map("units_ordered")
+  dateCreated              DateTime?                 @map("date_created") @db.Date
+  expectedDate             DateTime?                 @map("expected_date") @db.Date
+  subtotalPrice            Decimal?                  @map("subtotal_price") @db.Decimal(14, 2)
+  discount                 Decimal?                  @map("discount") @db.Decimal(14, 2)
+  discountReason           String?                   @map("discount_reason") @db.Text
+  shippingHandlingPrice    Decimal?                  @map("shipping_handling_price") @db.Decimal(14, 2)
+  totalTaxPrice            Decimal?                  @map("total_tax_price") @db.Decimal(14, 2)
+  totalPrice               Decimal?                  @map("total_price") @db.Decimal(14, 2)
+  sourceCreatedAt          DateTime?                 @map("source_created_at") @db.Timestamptz
+  sourceUpdatedAt          DateTime?                 @map("source_updated_at") @db.Timestamptz
   /// When all items were received from supplier.
-  receivedAt            DateTime?               @map("received_at") @db.Timestamptz
+  receivedAt               DateTime?                 @map("received_at") @db.Timestamptz
   /// When all line item qty+price were locked in (ready for invoicing).
-  finalizedAt           DateTime?               @map("finalized_at") @db.Timestamptz
-  completedAt           DateTime?               @map("completed_at") @db.Timestamptz
-  archivedAt            DateTime?               @map("archived_at") @db.Timestamptz
-  emailSentAt           DateTime?               @map("email_sent_at") @db.Timestamptz
-  emailTrackingToken    String?                 @unique @map("email_tracking_token")
-  emailOpenedAt         DateTime?               @map("email_opened_at") @db.Timestamptz
-  emailReplyReceivedAt  DateTime?               @map("email_reply_received_at") @db.Timestamptz
+  finalizedAt              DateTime?                 @map("finalized_at") @db.Timestamptz
+  completedAt              DateTime?                 @map("completed_at") @db.Timestamptz
+  archivedAt               DateTime?                 @map("archived_at") @db.Timestamptz
+  emailSentAt              DateTime?                 @map("email_sent_at") @db.Timestamptz
+  emailTrackingToken       String?                   @unique @map("email_tracking_token")
+  emailOpenedAt            DateTime?                 @map("email_opened_at") @db.Timestamptz
+  emailReplyReceivedAt     DateTime?                 @map("email_reply_received_at") @db.Timestamptz
   /// Office chose not to send supplier email; suppresses outstanding-email alerts until cleared or email is sent.
-  emailDeliveryWaivedAt   DateTime?               @map("email_delivery_waived_at") @db.Timestamptz
+  emailDeliveryWaivedAt    DateTime?                 @map("email_delivery_waived_at") @db.Timestamptz
   /// Shipping address for this PO (JSON: address1, address2, city, province, postalCode, country).
-  shippingAddress       Json?                   @map("shipping_address")
+  shippingAddress          Json?                     @map("shipping_address")
   /// Billing address for this PO (JSON, same shape as shipping).
-  billingAddress        Json?                   @map("billing_address")
-  billingSameAsShipping Boolean                 @default(true) @map("billing_same_as_shipping")
+  billingAddress           Json?                     @map("billing_address")
+  billingSameAsShipping    Boolean                   @default(true) @map("billing_same_as_shipping")
   /// Optional link to `public.delivery_location_presets` when ship-to was chosen from a preset.
-  deliveryLocationPresetId String?            @map("delivery_location_preset_id")
-  deliveryLocationPreset   DeliveryLocationPreset? @relation(fields: [deliveryLocationPresetId], references: [id], onDelete: SetNull)
+  deliveryLocationPresetId String?                   @map("delivery_location_preset_id")
+  deliveryLocationPreset   DeliveryLocationPreset?   @relation(fields: [deliveryLocationPresetId], references: [id], onDelete: SetNull)
   /// Hub user who created this PO (`POST /api/purchase-orders`). Null for legacy CSV import rows.
-  createdById           String?                 @map("created_by_id")
-  createdBy             User?                   @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  supplierId            String?                 @map("supplier_id")
-  supplier              Supplier?               @relation(fields: [supplierId], references: [id])
-  shopifyOrders         ShopifyOrder[]
-  lineItems             PurchaseOrderLineItem[]
-  emailDeliveries       PoEmailDelivery[]
+  createdById              String?                   @map("created_by_id")
+  createdBy                User?                     @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  supplierId               String?                   @map("supplier_id")
+  supplier                 Supplier?                 @relation(fields: [supplierId], references: [id])
+  shopifyOrders            ShopifyOrder[]
+  lineItems                PurchaseOrderLineItem[]
+  emailDeliveries          PoEmailDelivery[]
   refundReplacementRecords RefundReplacementRecord[]
-  createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime                  @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([poType])
   @@index([status])
@@ -902,15 +909,15 @@ model PurchaseOrderLineItem {
 
 /// Singleton (`id = "default"`): PO supplier outbound email — edited under Office → Contact Settings.
 model OfficePoEmailSettings {
-  id        String @id @default("default")
-  senderName String @map("sender_name")
-  ccEmail    String? @map("cc_email") @db.Text
+  id                    String   @id @default("default")
+  senderName            String   @map("sender_name")
+  ccEmail               String?  @map("cc_email") @db.Text
   /// Supports {{poNumber}}
-  subjectTemplate String @map("subject_template") @db.Text
+  subjectTemplate       String   @map("subject_template") @db.Text
   /// Supports {{supplierName}}, {{poNumber}}. Optional legacy {{replyEmail}} → order@cmarket.ca.
-  bodyIntroTemplate String @map("body_intro_template") @db.Text
-  bodySignatureTemplate String @map("body_signature_template") @db.Text
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  bodyIntroTemplate     String   @map("body_intro_template") @db.Text
+  bodySignatureTemplate String   @map("body_signature_template") @db.Text
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("office_po_email_settings")
   @@schema("order")
@@ -1007,14 +1014,14 @@ model FulfillmentLineItem {
 /// reasonCategory: 'supply_shortage' | 'item_damage' | 'human_error'
 /// reasonSubcategory: 'out_of_stock' | 'payment_not_cleared' | 'unknown_damage' | 'poor_packaging' | 'office' | 'supply' | 'delivery'
 model RefundReplacementRecord {
-  id                      String        @id @default(cuid())
+  id                String  @id @default(cuid())
   /// 'refund' | 'replacement'
-  type                    String
+  type              String
   /// 'supply_shortage' | 'item_damage' | 'human_error'
-  reasonCategory          String        @map("reason_category")
+  reasonCategory    String  @map("reason_category")
   /// subcategory within reasonCategory
-  reasonSubcategory       String        @map("reason_subcategory")
-  reasonNotes             String?       @map("reason_notes") @db.Text
+  reasonSubcategory String  @map("reason_subcategory")
+  reasonNotes       String? @map("reason_notes") @db.Text
 
   purchaseOrderId         String        @map("purchase_order_id")
   purchaseOrder           PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
@@ -1024,16 +1031,16 @@ model RefundReplacementRecord {
   /// For type='replacement': the ShopifyOrder.id of the created replacement order.
   replacementOrderId      String?       @map("replacement_order_id")
 
-  productTitle            String        @map("product_title") @db.Text
-  variantTitle            String?       @map("variant_title")
-  sku                     String?
-  quantity                Int
-  unitPrice               Decimal?      @map("unit_price") @db.Decimal(14, 2)
+  productTitle String   @map("product_title") @db.Text
+  variantTitle String?  @map("variant_title")
+  sku          String?
+  quantity     Int
+  unitPrice    Decimal? @map("unit_price") @db.Decimal(14, 2)
 
-  createdById             String?       @map("created_by_id")
-  createdBy               User?         @relation("RefundReplacementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt               DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  createdById String?  @map("created_by_id")
+  createdBy   User?    @relation("RefundReplacementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@index([purchaseOrderId])
   @@index([type])
@@ -1052,4 +1059,161 @@ model RefundReasonOptions {
 
   @@map("refund_reason_options")
   @@schema("order")
+}
+
+// ===============================
+// LABOR (part-time shift scheduler — /labor module)
+// All tables are row-scoped by location_id and guarded application-side
+// (no DB RLS in this stack); see app/api/labor/* route handlers.
+// ===============================
+
+/// Per-location module settings (one row per location). Drives the engine.
+model LaborSettings {
+  locationId  String   @id @map("location_id")
+  /// Labor budget as a fraction of revenue forecast (default 0.25).
+  budgetPct   Decimal  @default(0.25) @map("budget_pct") @db.Decimal(5, 4)
+  /// Fixed PT wage per hour.
+  wage        Decimal  @map("wage") @db.Decimal(10, 2)
+  minCov      Int      @default(1) @map("min_cov")
+  maxCov      Int      @default(6) @map("max_cov")
+  minShiftHrs Decimal  @default(3) @map("min_shift_hrs") @db.Decimal(4, 2)
+  maxShiftHrs Decimal  @default(6) @map("max_shift_hrs") @db.Decimal(4, 2)
+  increment   Decimal  @default(1.0) @map("increment") @db.Decimal(3, 2)
+  /// First operating hour bucket (inclusive, 0-23).
+  openHour    Int      @map("open_hour")
+  /// Last operating hour bucket (inclusive, 0-23). 5AM-10PM → open=5, close=22.
+  closeHour   Int      @map("close_hour")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@map("labor_settings")
+  @@schema("labor")
+}
+
+/// Clover hourly net-sales rollup (store-local Vancouver hour), populated by the pipeline.
+model CloverSalesHourly {
+  locationId   String   @map("location_id")
+  /// Store-local calendar date (YYYY-MM-DD).
+  businessDate String   @map("business_date")
+  /// Store-local hour 0-23.
+  hour         Int      @map("hour")
+  netSales     Decimal  @map("net_sales") @db.Decimal(14, 2)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  location     Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([locationId, businessDate, hour])
+  @@index([locationId, businessDate])
+  @@map("clover_sales_hourly")
+  @@schema("labor")
+}
+
+/// Nightly trimmed-mean heatmap cache. dow: 0=Sun..6=Sat (matches zonedWeekdaySun0).
+model SalesHeatmapCache {
+  locationId  String   @map("location_id")
+  dow         Int      @map("dow")
+  hour        Int      @map("hour")
+  avgNetSales Decimal  @map("avg_net_sales") @db.Decimal(14, 2)
+  sampleN     Int      @map("sample_n")
+  computedAt  DateTime @map("computed_at") @db.Timestamptz
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([locationId, dow, hour])
+  @@map("sales_heatmap_cache")
+  @@schema("labor")
+}
+
+/// Dates the manager excludes from the trailing heatmap sample (holidays, closures, events).
+model SalesSampleExclusion {
+  id           String   @id @default(cuid())
+  locationId   String   @map("location_id")
+  businessDate String   @map("business_date")
+  reason       String?  @map("reason")
+  createdById  String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  location     Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, businessDate])
+  @@map("sales_sample_exclusions")
+  @@schema("labor")
+}
+
+/// Revenue forecast for a date (office role writes; manager/admin read).
+model RevenueForecast {
+  locationId  String   @map("location_id")
+  date        String   @map("date")
+  amount      Decimal  @map("amount") @db.Decimal(14, 2)
+  createdById String?  @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([locationId, date])
+  @@map("revenue_forecasts")
+  @@schema("labor")
+}
+
+/// Fixed payroll for a date (manager role writes; office/admin read).
+model FixedPayroll {
+  locationId  String   @map("location_id")
+  date        String   @map("date")
+  amount      Decimal  @map("amount") @db.Decimal(14, 2)
+  createdById String?  @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([locationId, date])
+  @@map("fixed_payroll")
+  @@schema("labor")
+}
+
+/// A generated schedule plan for one location + date.
+model LaborPlan {
+  id            String              @id @default(cuid())
+  locationId    String              @map("location_id")
+  date          String              @map("date")
+  laborBudget   Decimal             @map("labor_budget") @db.Decimal(14, 2)
+  fixedPayroll  Decimal             @map("fixed_payroll") @db.Decimal(14, 2)
+  ptLaborFee    Decimal             @map("pt_labor_fee") @db.Decimal(14, 2)
+  wageUsed      Decimal             @map("wage_used") @db.Decimal(10, 2)
+  affordableHrs Decimal             @map("affordable_hrs") @db.Decimal(8, 2)
+  scheduledHrs  Decimal             @map("scheduled_hrs") @db.Decimal(8, 2)
+  scheduledCost Decimal             @map("scheduled_cost") @db.Decimal(14, 2)
+  /// DRAFT | OVER_BUDGET | PUBLISHED
+  status        String              @map("status")
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  location      Location            @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  shifts        LaborPlanShift[]
+  coverage      LaborPlanCoverage[]
+
+  @@index([locationId, date])
+  @@map("labor_plans")
+  @@schema("labor")
+}
+
+model LaborPlanShift {
+  id         String    @id @default(cuid())
+  planId     String    @map("plan_id")
+  shiftIndex Int       @map("shift_index")
+  startHour  Int       @map("start_hour")
+  endHour    Int       @map("end_hour")
+  /// Nullable; reserved for v2 role-aware columns. Left null in the MVP.
+  role       String?   @map("role")
+  plan       LaborPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, shiftIndex])
+  @@map("labor_plan_shifts")
+  @@schema("labor")
+}
+
+model LaborPlanCoverage {
+  id              String    @id @default(cuid())
+  planId          String    @map("plan_id")
+  hour            Int       @map("hour")
+  targetHeadcount Decimal   @map("target_headcount") @db.Decimal(5, 2)
+  salesWeight     Decimal   @map("sales_weight") @db.Decimal(8, 6)
+  salesAvg        Decimal   @map("sales_avg") @db.Decimal(14, 2)
+  plan            LaborPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, hour])
+  @@map("labor_plan_coverage")
+  @@schema("labor")
 }

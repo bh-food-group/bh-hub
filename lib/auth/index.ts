@@ -154,6 +154,11 @@ export function getCanSeeBudgetAndReports(
   return getOfficeOrAdmin(role) || role === 'manager';
 }
 
+/** Can see the Labor scheduler in nav (admin, office, manager). Also gated by the feature flag. */
+export function getCanSeeLabor(role: string | null | undefined): boolean {
+  return getOfficeOrAdmin(role) || role === 'manager';
+}
+
 export function getCanSeeOrderSection(
   role: string | null | undefined,
 ): boolean {

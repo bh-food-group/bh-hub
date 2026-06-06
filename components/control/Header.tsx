@@ -2,8 +2,10 @@ import {
   auth,
   getCanSeeBudgetAndReports,
   getCanSeeDeliveryAndCost,
+  getCanSeeLabor,
   getOfficeOrAdmin,
 } from '@/lib/auth';
+import { isLaborModuleEnabled } from '@/lib/labor/feature-flag';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import React from 'react';
@@ -23,6 +25,8 @@ const Header = async ({ isOfficeOrAdmin }: HeaderProps) => {
     isOfficeOrAdmin ?? getOfficeOrAdmin(session.user.role);
   const showBudgetAndReports = getCanSeeBudgetAndReports(session.user.role);
   const showDeliveryAndCost = getCanSeeDeliveryAndCost(session.user.role);
+  const showLabor =
+    isLaborModuleEnabled() && getCanSeeLabor(session.user.role);
 
   return (
     isActive && (
@@ -47,11 +51,19 @@ const Header = async ({ isOfficeOrAdmin }: HeaderProps) => {
             </p>
           </div>
         </div>
-        <HeaderNav className="hidden md:flex w-full" role={session.user.role} />
+        <HeaderNav
+          className="hidden md:flex w-full"
+          role={session.user.role}
+          showLabor={showLabor}
+        />
         <div className="flex items-center gap-2">
           <SignOutButton size="sm" />
         </div>
-        <HeaderNav className="md:hidden w-full" role={session.user.role} />
+        <HeaderNav
+          className="md:hidden w-full"
+          role={session.user.role}
+          showLabor={showLabor}
+        />
       </header>
     )
   );
