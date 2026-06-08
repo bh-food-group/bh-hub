@@ -278,9 +278,24 @@ async function OfficeInboxContent() {
   }
   const unlinkedOrderIds = unlinkedShopifyOrders.map((o) => o.id);
 
-  const [variantDefaultLineNotes, legacyOrphanPoLines] = await Promise.all([
+  const [
+    variantDefaultLineNotes,
+    legacyOrphanPoLines,
+    customerScheduleOverrides,
+    deliveryPresets,
+    presetCustomerExceptions,
+  ] = await Promise.all([
     loadVariantOfficeNotesMap(prisma, [...variantGidsForNotes]),
     fetchLegacyOrphanPoLinesForInbox(prisma, unlinkedOrderIds),
+    prisma.supplierCustomerDeliverySchedule.findMany({
+      select: { customerId: true, supplierId: true, schedule: true },
+    }),
+    prisma.deliverySchedulePreset.findMany({
+      select: { id: true, windows: true },
+    }),
+    prisma.deliverySchedulePresetCustomerException.findMany({
+      select: { presetId: true, customerId: true, windows: true },
+    }),
   ]);
 
   const inbox = buildInboxData(
@@ -293,6 +308,9 @@ async function OfficeInboxContent() {
     variantDefaultLineNotes,
     legacyOrphanPoLines,
     replacementOrderCountByPoId,
+    customerScheduleOverrides,
+    deliveryPresets,
+    presetCustomerExceptions,
   );
 
   const periods = buildWeekPeriods();

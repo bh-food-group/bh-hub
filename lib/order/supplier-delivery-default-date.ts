@@ -112,6 +112,12 @@ export function computeDefaultExpectedYmd({
     return hit ?? formatYmdUtc(anchor);
   }
 
+  // `preset` schedules must be resolved to concrete windows before reaching here
+  // (see `resolveScheduleWithPresets`); if one slips through, fall back to the anchor.
+  if (schedule.rule.kind !== 'iso_week_windows') {
+    return formatYmdUtc(anchor);
+  }
+
   const isoDow = getIsoDayUtc(anchor);
   for (const w of schedule.rule.windows) {
     if (w.orderWeekdays.includes(isoDow)) {

@@ -23,11 +23,18 @@ import {
   pickBulkDeliveryScheduleSeed,
 } from './GroupBulkDeliveryScheduleDialog';
 import { SupplierForm, type SupplierRow, type SupplierGroup } from './SupplierForm';
+import type { CustomerOption } from './SupplierCustomerScheduleOverrides';
+import {
+  DeliveryPresetsManager,
+  type DeliveryPresetData,
+} from './DeliveryPresetsManager';
 
 type Props = {
   vendors: string[];
   suppliers: SupplierRow[];
   groups: SupplierGroup[];
+  customers: CustomerOption[];
+  presets: DeliveryPresetData[];
   shopifyConfigured: boolean;
 };
 
@@ -42,8 +49,14 @@ export function SuppliersClient({
   vendors,
   suppliers: initial,
   groups,
+  customers,
+  presets,
   shopifyConfigured,
 }: Props) {
+  const presetOptions = useMemo(
+    () => presets.map((p) => ({ id: p.id, name: p.name })),
+    [presets],
+  );
   const defaultGroupId =
     groups.find((g) => g.slug === 'unknown-supplier')?.id ??
     groups.find((g) => g.slug === 'external')?.id ??
@@ -436,6 +449,8 @@ export function SuppliersClient({
               )}
             </div>
           </div>
+
+          <DeliveryPresetsManager presets={presets} customers={customers} />
         </div>
 
         {/* Right: Registered Suppliers + Form */}
@@ -457,6 +472,8 @@ export function SuppliersClient({
                 prefillVendor={prefillVendor}
                 vendors={vendors}
                 groups={groups}
+                customers={customers}
+                presets={presetOptions}
                 defaultGroupId={defaultGroupId}
                 onDone={handleDone}
               />
@@ -646,6 +663,7 @@ export function SuppliersClient({
         group={bulkDeliveryGroup}
         supplierCount={bulkGroupSupplierCount}
         seedScheduleRaw={bulkScheduleSeed}
+        presets={presetOptions}
         onApplied={() => router.refresh()}
       />
 
@@ -681,6 +699,8 @@ export function SuppliersClient({
                 prefillVendor={null}
                 vendors={vendors}
                 groups={groups}
+                customers={customers}
+                presets={presetOptions}
                 onDone={handleDone}
               />
             )}

@@ -104,29 +104,25 @@ export async function ingestCloverHourly(
     );
     const buckets = bucketPaymentsByHour(payments, fromDate, toDate);
 
-    // Upsert in a transaction so a partial failure doesn't leave a torn rollup.
-    if (buckets.length > 0) {
-      await prisma.$transaction(
-        buckets.map((b) =>
-          prisma.cloverSalesHourly.upsert({
-            where: {
-              locationId_businessDate_hour: {
-                locationId,
-                businessDate: b.businessDate,
-                hour: b.hour,
-              },
-            },
-            create: {
-              locationId,
-              businessDate: b.businessDate,
-              hour: b.hour,
-              netSales: b.netSales,
-            },
-            update: { netSales: b.netSales },
-          }),
-        ),
-      );
-    }
+    // Replace the window's rows: one ranged delete + one batched insert. This is
+    // idempotent on re-run and avoids a per-row upsert loop, which blows the 5s
+    // interactive-transaction timeout over the pooler for ~1000 buckets.
+    await prisma.$transaction([
+      prisma.cloverSalesHourly.deleteMany({
+        where: {
+          locationId,
+          businessDate: { gte: fromDate, lte: toDate },
+        },
+      }),
+      prisma.cloverSalesHourly.createMany({
+        data: buckets.map((b) => ({
+          locationId,
+          businessDate: b.businessDate,
+          hour: b.hour,
+          netSales: b.netSales,
+        })),
+      }),
+    ]);
     return { buckets: buckets.length };
   } catch (err) {
     return {

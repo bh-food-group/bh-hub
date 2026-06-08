@@ -9,7 +9,10 @@ import {
   assertSupplierOrderChannel,
   supplierOrderChannelTypeSchema,
 } from '@/lib/order/supplier-order-channel';
-import { parseSupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
+import {
+  parseSupplierDeliverySchedule,
+  parseIsoWeekWindows,
+} from '@/lib/order/supplier-delivery-schedule';
 
 const yearMonthSchema = z
   .string()
@@ -401,6 +404,19 @@ const supplierWritableFieldsSchema = z.object({
     .optional(),
   /** Parsed server-side with `parseSupplierDeliverySchedule`; null clears. */
   deliverySchedule: z.unknown().optional().nullable(),
+  /**
+   * Per-customer overrides of this supplier's default delivery schedule. When provided,
+   * the set is synced exactly: rows not present are deleted. Each `schedule` is parsed
+   * server-side with `parseSupplierDeliverySchedule`. Only honored on update (PUT).
+   */
+  customerDeliverySchedules: z
+    .array(
+      z.object({
+        customerId: z.string().trim().min(1),
+        schedule: z.unknown(),
+      }),
+    )
+    .optional(),
 });
 
 export const supplierCreateSchema = supplierWritableFieldsSchema.superRefine(
@@ -490,6 +506,39 @@ export const supplierGroupBulkDeliveryScheduleSchema = z
       });
     }
   });
+
+// ─── Delivery schedule presets ───────────────────────────────────────────────
+
+const isoWeekWindowsField = z.unknown().superRefine((w, ctx) => {
+  if (!parseIsoWeekWindows(w)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Invalid partition windows (need ≥1 window, each weekday in one window only)',
+    });
+  }
+});
+
+/** POST /api/order/delivery-presets */
+export const deliveryPresetCreateSchema = z.object({
+  name: z.string().trim().min(1, 'Preset name is required').max(60),
+  windows: isoWeekWindowsField,
+});
+
+const presetCustomerExceptionSchema = z.object({
+  customerId: z.string().trim().min(1),
+  windows: isoWeekWindowsField,
+});
+
+/** PUT /api/order/delivery-presets/[id] */
+export const deliveryPresetUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  windows: isoWeekWindowsField.optional(),
+  /** When provided, the exception set is synced exactly (missing rows deleted). */
+  customerExceptions: z.array(presetCustomerExceptionSchema).optional(),
+});
+
+export type DeliveryPresetCreateBody = z.infer<typeof deliveryPresetCreateSchema>;
+export type DeliveryPresetUpdateBody = z.infer<typeof deliveryPresetUpdateSchema>;
 
 // ─── Office: Shopify order edit (Inbox / PO) ─────────────────────────────────
 

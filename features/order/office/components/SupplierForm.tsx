@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -24,7 +24,15 @@ import {
   type DirectInstructionChannelPayload,
 } from '@/lib/order/supplier-order-channel';
 import type { SupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
-import { SupplierDeliveryScheduleFields } from './SupplierDeliveryScheduleFields';
+import {
+  SupplierDeliveryScheduleFields,
+  type DeliveryPresetOption,
+} from './SupplierDeliveryScheduleFields';
+import {
+  SupplierCustomerScheduleOverrides,
+  type CustomerOption,
+  type CustomerScheduleOverridesHandle,
+} from './SupplierCustomerScheduleOverrides';
 import { useSupplierDeliveryScheduleForm } from '../hooks/use-supplier-delivery-schedule-form';
 
 type EmailFormRow = { email: string; name: string };
@@ -65,6 +73,7 @@ export type SupplierRow = {
   orderChannelType: string;
   orderChannelPayload: unknown;
   deliverySchedule: unknown | null;
+  customerDeliverySchedules: { customerId: string; schedule: unknown }[];
   createdAt: string;
   vendorMappings: VendorMappingRow[];
   _count: { purchaseOrders: number };
@@ -75,6 +84,8 @@ type Props = {
   prefillVendor: string | null;
   vendors: string[];
   groups: SupplierGroup[];
+  customers: CustomerOption[];
+  presets: DeliveryPresetOption[];
   defaultGroupId?: string | null;
   onDone: () => void;
 };
@@ -157,10 +168,13 @@ export function SupplierForm({
   prefillVendor,
   vendors,
   groups,
+  customers,
+  presets,
   defaultGroupId,
   onDone,
 }: Props) {
   const isEdit = editing !== null;
+  const customerOverridesRef = useRef<CustomerScheduleOverridesHandle>(null);
   const [isPending, startTransition] = useTransition();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
@@ -302,6 +316,19 @@ export function SupplierForm({
 
       const schedulePayload = deliveryForm.buildDeliverySchedulePayload();
 
+      // Per-customer overrides are edit-only (need a saved supplier + customers).
+      let customerDeliverySchedules:
+        | { customerId: string; schedule: SupplierDeliverySchedule }[]
+        | undefined;
+      if (isEdit) {
+        const collected = customerOverridesRef.current?.collect();
+        if (collected?.error) {
+          setError(collected.error);
+          return;
+        }
+        customerDeliverySchedules = collected?.rows ?? [];
+      }
+
       const body = {
         company: company.trim(),
         officePoSupplierCode: officePoSupplierCode.trim() || null,
@@ -313,6 +340,9 @@ export function SupplierForm({
         vendorAliases,
         locationVendorPairs,
         deliverySchedule: schedulePayload,
+        ...(customerDeliverySchedules !== undefined && {
+          customerDeliverySchedules,
+        }),
       };
 
       const url = isEdit ? `/api/order/suppliers/${editing.id}` : '/api/order/suppliers';
@@ -762,7 +792,18 @@ export function SupplierForm({
       <SupplierDeliveryScheduleFields
         form={deliveryForm}
         radioName="sf-delivery-rule"
+        presets={presets}
       />
+
+      {isEdit && (
+        <SupplierCustomerScheduleOverrides
+          ref={customerOverridesRef}
+          customers={customers}
+          presets={presets}
+          initialOverrides={editing.customerDeliverySchedules}
+          supplierDefaultScheduleRaw={editing.deliverySchedule}
+        />
+      )}
 
       <div className="grid gap-2">
         <Label htmlFor="sf-instruction" className="text-xs">

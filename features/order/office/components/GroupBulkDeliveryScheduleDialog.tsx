@@ -16,7 +16,10 @@ import {
   supplierDeliveryScheduleFromPartitionWindows,
 } from '@/lib/order/supplier-delivery-schedule';
 import { useSupplierDeliveryScheduleForm } from '../hooks/use-supplier-delivery-schedule-form';
-import { SupplierDeliveryScheduleFields } from './SupplierDeliveryScheduleFields';
+import {
+  SupplierDeliveryScheduleFields,
+  type DeliveryPresetOption,
+} from './SupplierDeliveryScheduleFields';
 import type { SupplierRow } from './SupplierForm';
 
 /** Stable default when internal group has no per-supplier schedule yet (avoids reset loops). */
@@ -51,6 +54,7 @@ type Props = {
   group: { id: string; name: string; slug: string } | null;
   supplierCount: number;
   seedScheduleRaw: unknown | null;
+  presets: DeliveryPresetOption[];
   onApplied: () => void;
 };
 
@@ -60,6 +64,7 @@ export function GroupBulkDeliveryScheduleDialog({
   group,
   supplierCount,
   seedScheduleRaw,
+  presets,
   onApplied,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +131,7 @@ export function GroupBulkDeliveryScheduleDialog({
           <SupplierDeliveryScheduleFields
             form={deliveryForm}
             radioName="bulk-group-delivery-rule"
+            presets={presets}
             intro={
               <p className="text-[10px] text-muted-foreground -mt-0.5">
                 The same schedule is written to every supplier in this group.

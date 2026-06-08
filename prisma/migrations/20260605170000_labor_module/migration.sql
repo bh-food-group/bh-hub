@@ -63,26 +63,26 @@ CREATE TABLE "labor"."sales_sample_exclusions" (
 -- CreateIndex
 CREATE UNIQUE INDEX "sales_sample_exclusions_location_id_business_date_key" ON "labor"."sales_sample_exclusions"("location_id", "business_date");
 
--- CreateTable (monthly: keyed by year_month, distributed to days in the cascade)
+-- CreateTable
 CREATE TABLE "labor"."revenue_forecasts" (
     "location_id" TEXT NOT NULL,
-    "year_month" TEXT NOT NULL,
+    "date" TEXT NOT NULL,
     "amount" DECIMAL(14,2) NOT NULL,
     "created_by" TEXT,
     "updated_at" TIMESTAMPTZ NOT NULL,
 
-    CONSTRAINT "revenue_forecasts_pkey" PRIMARY KEY ("location_id", "year_month")
+    CONSTRAINT "revenue_forecasts_pkey" PRIMARY KEY ("location_id", "date")
 );
 
--- CreateTable (monthly: keyed by year_month, spread evenly across days)
+-- CreateTable
 CREATE TABLE "labor"."fixed_payroll" (
     "location_id" TEXT NOT NULL,
-    "year_month" TEXT NOT NULL,
+    "date" TEXT NOT NULL,
     "amount" DECIMAL(14,2) NOT NULL,
     "created_by" TEXT,
     "updated_at" TIMESTAMPTZ NOT NULL,
 
-    CONSTRAINT "fixed_payroll_pkey" PRIMARY KEY ("location_id", "year_month")
+    CONSTRAINT "fixed_payroll_pkey" PRIMARY KEY ("location_id", "date")
 );
 
 -- CreateTable

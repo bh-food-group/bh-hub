@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   cloneBhSplitTemplateWindows,
   parseSupplierDeliverySchedule,
+  supplierDeliveryScheduleForPreset,
   supplierDeliveryScheduleFromPartitionWindows,
   type IsoWeekWindow,
   type SupplierDeliverySchedule,
@@ -23,6 +24,7 @@ export type DeliveryRuleKind =
   | 'off'
   | 'next'
   | 'day_after_creation'
+  | 'preset'
   | 'partition';
 
 export function ruleKindFromSchedule(
@@ -33,8 +35,16 @@ export function ruleKindFromSchedule(
   if (!s) return 'off';
   if (s.rule.kind === 'day_after_creation') return 'day_after_creation';
   if (s.rule.kind === 'next_delivery_day') return 'next';
+  if (s.rule.kind === 'preset') return 'preset';
   if (s.rule.kind === 'iso_week_windows') return 'partition';
   return 'off';
+}
+
+export function presetIdFromSchedule(
+  raw: unknown | null | undefined,
+): string | null {
+  const s = parseSupplierDeliverySchedule(raw);
+  return s && s.rule.kind === 'preset' ? s.rule.presetId : null;
 }
 
 export function initialPartitionWindows(
@@ -92,16 +102,23 @@ export function useSupplierDeliveryScheduleForm(
   const [partitionWindows, setPartitionWindows] = useState<IsoWeekWindow[]>(
     () => initialPartitionWindows(initialScheduleRaw),
   );
+  const [presetId, setPresetId] = useState<string | null>(() =>
+    presetIdFromSchedule(initialScheduleRaw),
+  );
 
   useEffect(() => {
     setDeliveryRuleKind(ruleKindFromSchedule(initialScheduleRaw));
     setDeliveryWeekdays(weekdaysFromSchedule(initialScheduleRaw));
     setPartitionWindows(initialPartitionWindows(initialScheduleRaw));
+    setPresetId(presetIdFromSchedule(initialScheduleRaw));
   }, [initialScheduleRaw]);
 
   const buildDeliverySchedulePayload =
     useCallback((): SupplierDeliverySchedule | null => {
       if (deliveryRuleKind === 'off') return null;
+      if (deliveryRuleKind === 'preset') {
+        return presetId ? supplierDeliveryScheduleForPreset(presetId) : null;
+      }
       if (deliveryRuleKind === 'partition') {
         return supplierDeliveryScheduleFromPartitionWindows(partitionWindows);
       }
@@ -116,9 +133,12 @@ export function useSupplierDeliveryScheduleForm(
         deliveryWeekdays: [...new Set(deliveryWeekdays)].sort((a, b) => a - b),
         rule: { kind: 'next_delivery_day' },
       };
-    }, [deliveryRuleKind, deliveryWeekdays, partitionWindows]);
+    }, [deliveryRuleKind, deliveryWeekdays, partitionWindows, presetId]);
 
   const validateScheduleForSubmit = useCallback((): string | null => {
+    if (deliveryRuleKind === 'preset' && !presetId) {
+      return 'Pick a preset, or turn off the delivery schedule.';
+    }
     if (deliveryRuleKind === 'partition') {
       return validatePartitionWindows(partitionWindows);
     }
@@ -126,7 +146,7 @@ export function useSupplierDeliveryScheduleForm(
       return 'Pick at least one delivery weekday, or turn off the delivery schedule.';
     }
     return null;
-  }, [deliveryRuleKind, deliveryWeekdays.length, partitionWindows]);
+  }, [deliveryRuleKind, deliveryWeekdays.length, partitionWindows, presetId]);
 
   const selectOff = useCallback(() => {
     setDeliveryRuleKind('off');
@@ -143,67 +163,16 @@ export function useSupplierDeliveryScheduleForm(
     setPartitionWindows([]);
   }, []);
 
+  const selectPreset = useCallback((id: string) => {
+    setDeliveryRuleKind('preset');
+    setPresetId(id || null);
+  }, []);
+
   const selectPartition = useCallback(() => {
     setDeliveryRuleKind('partition');
     setPartitionWindows((prev) =>
       prev.length > 0 ? prev : cloneBhSplitTemplateWindows(),
     );
-  }, []);
-
-  const patchPartitionWindow = useCallback(
-    (index: number, patch: Partial<IsoWeekWindow>) => {
-      setPartitionWindows((prev) =>
-        prev.map((w, i) => (i === index ? { ...w, ...patch } : w)),
-      );
-    },
-    [],
-  );
-
-  const togglePartitionOrderDay = useCallback(
-    (windowIndex: number, d: number) => {
-      setPartitionWindows((prev) =>
-        prev.map((w, i) => {
-          if (i !== windowIndex) return w;
-          const has = w.orderWeekdays.includes(d);
-          if (has) {
-            return {
-              ...w,
-              orderWeekdays: w.orderWeekdays.filter((x) => x !== d),
-            };
-          }
-          const takenElsewhere = prev.some(
-            (other, j) => j !== windowIndex && other.orderWeekdays.includes(d),
-          );
-          if (takenElsewhere) return w;
-          return {
-            ...w,
-            orderWeekdays: [...w.orderWeekdays, d].sort((a, b) => a - b),
-          };
-        }),
-      );
-    },
-    [],
-  );
-
-  const addPartitionWindow = useCallback(() => {
-    setPartitionWindows((prev) => [
-      ...prev,
-      {
-        orderWeekdays: [1],
-        deliverWeekday: 5,
-        deliverIn: 'same_iso_week' as const,
-      },
-    ]);
-  }, []);
-
-  const removePartitionWindow = useCallback((index: number) => {
-    setPartitionWindows((prev) =>
-      prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
-    );
-  }, []);
-
-  const applyBhSplitTemplate = useCallback(() => {
-    setPartitionWindows(cloneBhSplitTemplateWindows());
   }, []);
 
   const toggleDeliveryWeekday = useCallback((d: number) => {
@@ -218,16 +187,14 @@ export function useSupplierDeliveryScheduleForm(
     deliveryRuleKind,
     deliveryWeekdays,
     partitionWindows,
+    setPartitionWindows,
+    presetId,
     selectOff,
     selectNext,
     selectDayAfterCreation,
+    selectPreset,
     selectPartition,
     toggleDeliveryWeekday,
-    patchPartitionWindow,
-    togglePartitionOrderDay,
-    addPartitionWindow,
-    removePartitionWindow,
-    applyBhSplitTemplate,
     buildDeliverySchedulePayload,
     validateScheduleForSubmit,
   };

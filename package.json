@@ -17,7 +17,8 @@
     "import:po": "tsx scripts/import-purchase-orders-csv.ts",
     "sync:shopify": "tsx scripts/sync-shopify-orders.ts",
     "register:webhooks": "tsx scripts/register-shopify-webhooks.ts",
-    "migrate:cost": "tsx scripts/migrate-from-cost-analysis.ts"
+    "migrate:cost": "tsx scripts/migrate-from-cost-analysis.ts",
+    "labor:heatmap": "tsx scripts/labor-refresh-heatmap.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

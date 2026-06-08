@@ -8,7 +8,10 @@ import {
   assertSupplierOrderChannel,
   legacyColumnsFromOrderChannel,
 } from '@/lib/order/supplier-order-channel';
-import { parseSupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
+import {
+  parseSupplierDeliverySchedule,
+  type SupplierDeliverySchedule,
+} from '@/lib/order/supplier-delivery-schedule';
 import { syncLocationVendorPairs, upsertVendorMapping } from '@/lib/order/vendor-mapping';
 import { Prisma } from '@prisma/client';
 
@@ -147,6 +150,42 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
         id,
         (data.locationVendorPairs ?? []).filter((p) => !!p.shopifyLocationGid),
       );
+    }
+
+    // Sync per-customer delivery schedule overrides when provided.
+    // Rows with an invalid/empty schedule are dropped; the set is synced exactly
+    // (any existing override for a customer not in the payload is deleted).
+    if (data.customerDeliverySchedules !== undefined) {
+      const validRows = (data.customerDeliverySchedules ?? [])
+        .map((row) => ({
+          customerId: row.customerId,
+          schedule: parseSupplierDeliverySchedule(row.schedule),
+        }))
+        .filter(
+          (row): row is { customerId: string; schedule: SupplierDeliverySchedule } =>
+            row.schedule !== null,
+        );
+      const keepCustomerIds = validRows.map((r) => r.customerId);
+      await prisma.$transaction([
+        prisma.supplierCustomerDeliverySchedule.deleteMany({
+          where: { supplierId: id, customerId: { notIn: keepCustomerIds } },
+        }),
+        ...validRows.map((row) =>
+          prisma.supplierCustomerDeliverySchedule.upsert({
+            where: {
+              supplierId_customerId: { supplierId: id, customerId: row.customerId },
+            },
+            create: {
+              supplierId: id,
+              customerId: row.customerId,
+              schedule: row.schedule as unknown as Prisma.InputJsonValue,
+            },
+            update: {
+              schedule: row.schedule as unknown as Prisma.InputJsonValue,
+            },
+          }),
+        ),
+      ]);
     }
 
     return NextResponse.json({ ok: true, supplier });

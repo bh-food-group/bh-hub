@@ -67,7 +67,14 @@ import {
   supplierRowHasOpenDeliveryPo,
 } from '../utils/po-fulfillment-for-tab';
 import { computeEmailDeliveryOutstanding } from '../utils/po-email-delivery-policy';
-import { parseSupplierDeliverySchedule } from '@/lib/order/supplier-delivery-schedule';
+import {
+  parseSupplierDeliverySchedule,
+  type SupplierDeliverySchedule,
+} from '@/lib/order/supplier-delivery-schedule';
+import {
+  buildPresetWindowsLookup,
+  resolveScheduleWithPresets,
+} from '@/lib/order/delivery-schedule-preset';
 import { orderShippingJsonToPoAddress } from '../utils/order-shipping-json-to-po-address';
 import type { LegacyOrphanPoLineForInbox } from '@/lib/order/fetch-legacy-orphan-po-lines-for-inbox';
 
@@ -353,6 +360,17 @@ export function buildInboxData(
   variantDefaultLineNotes: ReadonlyMap<string, string> = new Map(),
   legacyOrphanPoLines: LegacyOrphanPoLineForInbox[] = [],
   replacementOrderCountByPoId: Map<string, number> = new Map(),
+  customerScheduleOverrides: {
+    customerId: string;
+    supplierId: string;
+    schedule: unknown;
+  }[] = [],
+  deliveryPresets: { id: string; windows: unknown }[] = [],
+  presetCustomerExceptions: {
+    presetId: string;
+    customerId: string;
+    windows: unknown;
+  }[] = [],
 ): InboxData {
   const purchaseOrders: AnyPo[] = [...activePurchaseOrders, ...archivedPurchaseOrders];
   const initialStates: Record<SupplierKey, SupplierEntry> = {};
@@ -367,6 +385,39 @@ export function buildInboxData(
   for (const g of supplierGroups) {
     for (const s of g.suppliers) supplierById.set(s.id, s);
   }
+
+  // Per-(customer, supplier) delivery schedule overrides, keyed `${customerId}::${supplierId}`.
+  const overrideScheduleByCustSup = new Map<string, SupplierDeliverySchedule>();
+  for (const o of customerScheduleOverrides) {
+    const parsed = parseSupplierDeliverySchedule(o.schedule);
+    if (parsed) {
+      overrideScheduleByCustSup.set(`${o.customerId}::${o.supplierId}`, parsed);
+    }
+  }
+
+  // Preset windows (default + per-customer exception) for resolving `preset`-kind schedules.
+  const presetLookup = buildPresetWindowsLookup(
+    deliveryPresets,
+    presetCustomerExceptions,
+  );
+
+  /**
+   * Effective expected-delivery schedule for an inbox (customer, supplier) entry.
+   * Precedence: per-(customer,supplier) override → supplier default; then any
+   * `preset` reference resolves to its customer exception → preset default.
+   */
+  const resolveEntrySchedule = (
+    custKey: string,
+    supId: string,
+    supplier: SupplierMeta | undefined,
+  ): SupplierDeliverySchedule | null => {
+    const base =
+      overrideScheduleByCustSup.get(`${custKey}::${supId}`) ??
+      (supplier != null
+        ? parseSupplierDeliverySchedule(supplier.deliverySchedule) ?? null
+        : null);
+    return resolveScheduleWithPresets(base, custKey, presetLookup);
+  };
   for (const po of purchaseOrders) {
     if (po.supplierId && po.supplier && !supplierById.has(po.supplierId)) {
       supplierById.set(po.supplierId, po.supplier);
@@ -592,7 +643,7 @@ export function buildInboxData(
         isArchived,
         archivePurchaseOrderIds,
         archiveShopifyOrderIds,
-        deliverySchedule: supplier != null ? parseSupplierDeliverySchedule(supplier.deliverySchedule) ?? null : null,
+        deliverySchedule: resolveEntrySchedule(custKey, supId, supplier),
       };
 
       if (hasPOs) {

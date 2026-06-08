@@ -19,6 +19,12 @@ const supplierDeliveryScheduleBaseSchema = z.object({
       kind: z.literal('iso_week_windows'),
       windows: z.array(isoWeekWindowSchema).min(1),
     }),
+    /**
+     * References a reusable `DeliverySchedulePreset` by id. Resolved server-side into
+     * concrete `iso_week_windows` (preset default, or a per-customer exception) before
+     * `computeDefaultExpectedYmd` runs — see `resolveScheduleWithPresets`.
+     */
+    z.object({ kind: z.literal('preset'), presetId: z.string().min(1) }),
   ]),
 });
 
@@ -95,5 +101,40 @@ export function parseSupplierDeliverySchedule(
   raw: unknown,
 ): SupplierDeliverySchedule | null {
   const r = supplierDeliveryScheduleSchema.safeParse(raw);
+  return r.success ? r.data : null;
+}
+
+/** A supplier schedule that delegates to a named `DeliverySchedulePreset`. */
+export function supplierDeliveryScheduleForPreset(
+  presetId: string,
+): SupplierDeliverySchedule {
+  return { deliveryWeekdays: [], rule: { kind: 'preset', presetId } };
+}
+
+/**
+ * Validates a bare `IsoWeekWindow[]` (preset default / exception windows), enforcing the
+ * same "an order weekday lives in only one window" rule as `iso_week_windows`.
+ */
+export const isoWeekWindowsArraySchema = z
+  .array(isoWeekWindowSchema)
+  .min(1)
+  .superRefine((windows, ctx) => {
+    const seen = new Set<number>();
+    for (let wi = 0; wi < windows.length; wi++) {
+      for (const d of windows[wi].orderWeekdays) {
+        if (seen.has(d)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Order weekday ${d} must appear in only one window`,
+            path: [wi, 'orderWeekdays'],
+          });
+        }
+        seen.add(d);
+      }
+    }
+  });
+
+export function parseIsoWeekWindows(raw: unknown): IsoWeekWindow[] | null {
+  const r = isoWeekWindowsArraySchema.safeParse(raw);
   return r.success ? r.data : null;
 }

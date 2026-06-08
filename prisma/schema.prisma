@@ -633,6 +633,8 @@ model ShopifyCustomer {
   updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz
   orders                ShopifyOrder[]
   fulfillments          Fulfillment[]
+  supplierDeliverySchedules SupplierCustomerDeliverySchedule[]
+  presetScheduleExceptions  DeliverySchedulePresetCustomerException[]
 
   @@index([email])
   @@map("shopify_customers")
@@ -765,8 +767,67 @@ model Supplier {
   /// Default PO expected delivery: ISO weekdays 1–7 (Mon–Sun), rule — see `supplier-delivery-schedule` zod.
   deliverySchedule    Json?  @map("delivery_schedule")
 
+  customerDeliverySchedules SupplierCustomerDeliverySchedule[]
+
   @@index([groupId])
   @@map("suppliers")
+  @@schema("order")
+}
+
+/// Per-customer override of a supplier's default `deliverySchedule`. When a customer
+/// orders from this supplier, this schedule (same `supplier-delivery-schedule` zod shape)
+/// replaces the supplier default for the PO expected-date computation in the inbox.
+model SupplierCustomerDeliverySchedule {
+  id         String          @id @default(cuid())
+  supplierId String          @map("supplier_id")
+  supplier   Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  customerId String          @map("customer_id")
+  customer   ShopifyCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// ISO weekdays 1–7 (Mon–Sun) + rule — see `supplier-delivery-schedule` zod.
+  schedule   Json
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([supplierId, customerId])
+  @@index([customerId])
+  @@map("supplier_customer_delivery_schedules")
+  @@schema("order")
+}
+
+/// A reusable, named delivery-schedule preset (e.g. "BH Shipping"). Holds the default
+/// weekly partition windows that suppliers reference via `delivery_schedule.rule.presetId`.
+/// Edit the preset once to update every supplier using it.
+model DeliverySchedulePreset {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// IsoWeekWindow[] — the preset's default partition windows (see `supplier-delivery-schedule` zod).
+  windows   Json
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  customerExceptions DeliverySchedulePresetCustomerException[]
+
+  @@map("delivery_schedule_presets")
+  @@schema("order")
+}
+
+/// Per-customer exception windows for a preset. When a supplier using preset P ships to
+/// this customer, these windows replace the preset's default windows.
+model DeliverySchedulePresetCustomerException {
+  id         String                 @id @default(cuid())
+  presetId   String                 @map("preset_id")
+  preset     DeliverySchedulePreset @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  customerId String                 @map("customer_id")
+  customer   ShopifyCustomer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// IsoWeekWindow[] — exception partition windows for this (preset, customer).
+  windows    Json
+  createdAt  DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([presetId, customerId])
+  @@index([customerId])
+  @@map("delivery_schedule_preset_customer_exceptions")
   @@schema("order")
 }
 
