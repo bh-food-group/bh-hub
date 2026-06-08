@@ -66,6 +66,17 @@ export type PerWeekdayPreview = {
   blocked: boolean;
 };
 
+export type HolidayPreview = {
+  date: string;
+  label: string | null;
+  dow: number;
+  dailyForecast: number;
+  laborBudget: number;
+  ptLaborFee: number;
+  affordableHrs: number;
+  blocked: boolean;
+};
+
 export type MonthResponse = {
   locationId: string;
   yearMonth: string;
@@ -76,6 +87,8 @@ export type MonthResponse = {
   dailyFixedPayroll: number;
   settings: ResolvedLaborSettings;
   perWeekday: PerWeekdayPreview[];
+  holidays: HolidayPreview[];
+  holidayProfileSampleN: number;
 };
 
 export type EnginePlan = {
@@ -97,11 +110,14 @@ export type PlanResult = {
   engine?: EnginePlan;
   sales: { s: number[]; sampleN: number[] };
   settings: LaborEngineSettings;
-  status: 'DRAFT' | 'OVER_BUDGET' | 'BLOCKED';
+  status: 'DRAFT' | 'OVER_BUDGET' | 'BLOCKED' | 'NO_FORECAST';
   shortfall?: number;
   planId: string | null;
   forecastMissing: boolean;
   fixedPayrollMissing: boolean;
+  isHoliday: boolean;
+  holidayName: string | null;
+  usedHolidayProfile: boolean;
 };
 
 export type WeekDay = {

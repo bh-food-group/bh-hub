@@ -14,12 +14,15 @@ import {
 } from '@/lib/clover/report-timezone';
 import {
   HEATMAP_TRAILING_WEEKS,
+  HOLIDAY_DOW,
+  HOLIDAY_LOOKBACK_MONTHS,
   LOW_CONFIDENCE_SAMPLE_N,
   TRIM_FRACTION,
 } from '@/lib/labor/constants';
 import { getLaborSettings } from './settings';
+import { isBcPublicHoliday, listBcHolidaysInRange } from './holidays';
 import { operatingHours } from '@/features/labor/engine';
-import { format, parseISO, subDays } from 'date-fns';
+import { format, parseISO, subDays, subMonths } from 'date-fns';
 
 export type HeatmapCell = {
   dow: number; // 0=Sun..6=Sat
@@ -64,7 +67,14 @@ export async function rebuildHeatmap(
   const settings = await getLaborSettings(locationId);
   const hours = operatingHours(settings);
 
-  const [rows, exclusions] = await Promise.all([
+  // Holiday profile pools holidays over a longer window (they are rare).
+  const holidayStart = format(
+    subMonths(parseISO(endDate), HOLIDAY_LOOKBACK_MONTHS),
+    'yyyy-MM-dd',
+  );
+  const holidayDates = listBcHolidaysInRange(holidayStart, endDate);
+
+  const [rows, exclusions, holidayRows] = await Promise.all([
     prisma.cloverSalesHourly.findMany({
       where: {
         locationId,
@@ -73,17 +83,28 @@ export async function rebuildHeatmap(
       select: { businessDate: true, hour: true, netSales: true },
     }),
     prisma.salesSampleExclusion.findMany({
-      where: { locationId, businessDate: { gte: startDate, lte: endDate } },
+      where: { locationId },
       select: { businessDate: true },
     }),
+    holidayDates.length
+      ? prisma.cloverSalesHourly.findMany({
+          where: { locationId, businessDate: { in: holidayDates } },
+          select: { businessDate: true, hour: true, netSales: true },
+        })
+      : Promise.resolve([]),
   ]);
 
-  const excluded = new Set(exclusions.map((e) => e.businessDate));
+  const manuallyExcluded = new Set(exclusions.map((e) => e.businessDate));
+  // Holidays are auto-excluded from the normal weekday averages so a stat
+  // holiday can't skew "a typical Monday".
+  const holidaySet = new Set(holidayDates);
+  const normalExcluded = (date: string) =>
+    manuallyExcluded.has(date) || holidaySet.has(date);
 
   // date → (hour → netSales). A date present here means the store operated.
   const byDate = new Map<string, Map<number, number>>();
   for (const r of rows) {
-    if (excluded.has(r.businessDate)) continue;
+    if (normalExcluded(r.businessDate)) continue;
     let hm = byDate.get(r.businessDate);
     if (!hm) {
       hm = new Map();
@@ -92,7 +113,7 @@ export async function rebuildHeatmap(
     hm.set(r.hour, Number.parseFloat(r.netSales.toString()));
   }
 
-  // Group operating dates by dow.
+  // Group operating dates by dow (0=Sun..6=Sat).
   const datesByDow = new Map<number, string[]>();
   for (const date of byDate.keys()) {
     const dow = zonedWeekdaySun0ForIsoDate(date, tz);
@@ -119,6 +140,31 @@ export async function rebuildHeatmap(
         sampleN: dates.length,
       });
     }
+  }
+
+  // Pooled holiday profile (dow = HOLIDAY_DOW) from all holiday dates that have
+  // sales data, excluding manually-excluded ones.
+  const holidayByDate = new Map<string, Map<number, number>>();
+  for (const r of holidayRows) {
+    if (manuallyExcluded.has(r.businessDate)) continue;
+    let hm = holidayByDate.get(r.businessDate);
+    if (!hm) {
+      hm = new Map();
+      holidayByDate.set(r.businessDate, hm);
+    }
+    hm.set(r.hour, Number.parseFloat(r.netSales.toString()));
+  }
+  const holidayDatesWithData = [...holidayByDate.keys()];
+  for (const hour of hours) {
+    const samples = holidayDatesWithData.map(
+      (d) => holidayByDate.get(d)?.get(hour) ?? 0,
+    );
+    cells.push({
+      dow: HOLIDAY_DOW,
+      hour,
+      avgNetSales: trimmedMean(samples),
+      sampleN: holidayDatesWithData.length,
+    });
   }
 
   // Replace this location's cache atomically.
@@ -170,10 +216,18 @@ export async function weekdayDailyAverages(
   const totals = new Array<number>(7).fill(0);
   for (const r of rows) {
     if (!hours.has(r.hour)) continue;
+    if (r.dow < 0 || r.dow > 6) continue; // skip the holiday profile (dow=7)
     totals[r.dow] += Number.parseFloat(r.avgNetSales.toString());
   }
   return totals;
 }
+
+export type SalesVector = {
+  s: number[];
+  sampleN: number[];
+  /** True when the holiday profile was used instead of the weekday row. */
+  usedHolidayProfile: boolean;
+};
 
 /**
  * The sales vector `s[]` for a specific weekday, aligned to the location's
@@ -202,4 +256,42 @@ export async function salesVectorForDow(
     s: hours.map((h) => byHour.get(h)?.avg ?? 0),
     sampleN: hours.map((h) => byHour.get(h)?.n ?? 0),
   };
+}
+
+/** Pooled holiday hourly profile (dow = HOLIDAY_DOW). */
+export async function holidayProfile(
+  locationId: string,
+): Promise<{ s: number[]; sampleN: number; dailyAvg: number }> {
+  const v = await salesVectorForDow(locationId, HOLIDAY_DOW);
+  return {
+    s: v.s,
+    sampleN: v.sampleN[0] ?? 0,
+    dailyAvg: v.s.reduce((a, b) => a + b, 0),
+  };
+}
+
+/**
+ * Engine sales vector for a specific DATE. On a BC statutory holiday with a
+ * holiday profile, returns the holiday curve; otherwise the normal weekday row.
+ */
+export async function salesVectorForDate(
+  locationId: string,
+  date: string,
+): Promise<SalesVector> {
+  const tz = getCloverReportTimeZone();
+  if (isBcPublicHoliday(date)) {
+    const hp = await holidayProfile(locationId);
+    if (hp.sampleN > 0 && hp.dailyAvg > 0) {
+      const settings = await getLaborSettings(locationId);
+      const n = operatingHours(settings).length;
+      return {
+        s: hp.s,
+        sampleN: new Array(n).fill(hp.sampleN),
+        usedHolidayProfile: true,
+      };
+    }
+  }
+  const dow = zonedWeekdaySun0ForIsoDate(date, tz);
+  const v = await salesVectorForDow(locationId, dow);
+  return { ...v, usedHolidayProfile: false };
 }

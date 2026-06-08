@@ -7,6 +7,21 @@
 /** Trailing window for the sales heatmap (weeks). */
 export const HEATMAP_TRAILING_WEEKS = 8;
 
+/**
+ * Sentinel `dow` value for the pooled BC-holiday sales profile in
+ * `sales_heatmap_cache` (real weekdays are 0=Sun..6=Sat). A holiday that falls on
+ * a weekday is weighted by this profile — the historical tendency of holidays —
+ * not by that normal weekday.
+ */
+export const HOLIDAY_DOW = 7;
+
+/**
+ * How far back to gather past holiday dates for the holiday profile. Holidays are
+ * rare (~1 per month), so the profile pools all holidays over this window rather
+ * than relying on the 8-week sales window alone.
+ */
+export const HOLIDAY_LOOKBACK_MONTHS = 12;
+
 /** Below this many valid samples, a heatmap cell is flagged low-confidence. */
 export const LOW_CONFIDENCE_SAMPLE_N = 3;
 

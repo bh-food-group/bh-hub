@@ -28,11 +28,11 @@ type Props = {
 
 type Tab = 'schedule' | 'budget' | 'heatmap' | 'settings';
 
-const TABS: { key: Tab; label: string }[] = [
+const TABS: { key: Tab; label: string; officeOnly?: boolean }[] = [
   { key: 'schedule', label: 'Schedule' },
-  { key: 'budget', label: 'Budget Planner' },
+  { key: 'budget', label: 'Budget Planner', officeOnly: true },
   { key: 'heatmap', label: 'Sales Heatmap' },
-  { key: 'settings', label: 'Settings' },
+  { key: 'settings', label: 'Settings', officeOnly: true },
 ];
 
 /** Today as YYYY-MM-DD in the browser's local time (good enough for a default). */
@@ -54,6 +54,10 @@ export function LaborModule({
   const [tab, setTab] = useState<Tab>('schedule');
   // Shared selected date drives the Budget and Schedule screens.
   const [date, setDate] = useState<string>(todayIso());
+
+  // Location users (managers) see only Schedule + Sales Heatmap; Budget Planner
+  // and Settings are office/admin only.
+  const visibleTabs = TABS.filter((t) => isOfficeOrAdmin || !t.officeOnly);
 
   return (
     <div className="space-y-6">
@@ -87,7 +91,7 @@ export function LaborModule({
       </div>
 
       <div className="flex flex-wrap gap-1 border-b">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             type="button"

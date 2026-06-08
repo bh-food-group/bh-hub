@@ -7,6 +7,7 @@
  *  - Fixed payroll: spread evenly across the month's days (monthly ÷ days).
  */
 import { getCloverReportTimeZone, zonedWeekdaySun0ForIsoDate } from '@/lib/clover/report-timezone';
+import { isBcPublicHoliday } from './holidays';
 
 const YM_RE = /^\d{4}-\d{2}$/;
 
@@ -67,4 +68,65 @@ export function dailyFixedPayrollShare(
   yearMonth: string,
 ): number {
   return monthlyPayroll / (daysInMonth(yearMonth) || 1);
+}
+
+export type DayExpectation = {
+  date: string;
+  dow: number;
+  holiday: boolean;
+  /** Expected daily net sales used as the distribution weight for this day. */
+  expected: number;
+};
+
+export type MonthExpectations = {
+  perDate: Map<string, DayExpectation>;
+  denom: number;
+  totalDays: number;
+  holidayDates: string[];
+};
+
+/**
+ * Expected daily sales for every day in the month — the revenue-distribution
+ * weights. A holiday uses the holiday profile's daily average (the historical
+ * tendency of holidays), falling back to the normal weekday average when there is
+ * no holiday history. Normal days use their weekday average.
+ */
+export function buildMonthExpectations(
+  yearMonth: string,
+  weekdayDailyAvg: number[],
+  holidayDailyAvg: number,
+): MonthExpectations {
+  const perDate = new Map<string, DayExpectation>();
+  const holidayDates: string[] = [];
+  const totalDays = daysInMonth(yearMonth);
+  if (!isValidYearMonth(yearMonth)) {
+    return { perDate, denom: 0, totalDays, holidayDates };
+  }
+  const tz = getCloverReportTimeZone();
+  let denom = 0;
+  for (let d = 1; d <= totalDays; d++) {
+    const date = `${yearMonth}-${String(d).padStart(2, '0')}`;
+    const dow = zonedWeekdaySun0ForIsoDate(date, tz);
+    const holiday = isBcPublicHoliday(date);
+    const expected = holiday
+      ? holidayDailyAvg > 0
+        ? holidayDailyAvg
+        : (weekdayDailyAvg[dow] ?? 0)
+      : (weekdayDailyAvg[dow] ?? 0);
+    perDate.set(date, { date, dow, holiday, expected });
+    denom += expected;
+    if (holiday) holidayDates.push(date);
+  }
+  return { perDate, denom, totalDays, holidayDates };
+}
+
+/** Day's share of the monthly forecast given precomputed month expectations. */
+export function dailyForecastFromExpectations(
+  monthlyForecast: number,
+  exp: MonthExpectations,
+  date: string,
+): number {
+  if (exp.denom <= 0) return monthlyForecast / (exp.totalDays || 1);
+  const e = exp.perDate.get(date)?.expected ?? 0;
+  return (monthlyForecast * e) / exp.denom;
 }

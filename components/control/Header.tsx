@@ -5,7 +5,6 @@ import {
   getCanSeeLabor,
   getOfficeOrAdmin,
 } from '@/lib/auth';
-import { isLaborModuleEnabled } from '@/lib/labor/feature-flag';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import React from 'react';
@@ -25,8 +24,7 @@ const Header = async ({ isOfficeOrAdmin }: HeaderProps) => {
     isOfficeOrAdmin ?? getOfficeOrAdmin(session.user.role);
   const showBudgetAndReports = getCanSeeBudgetAndReports(session.user.role);
   const showDeliveryAndCost = getCanSeeDeliveryAndCost(session.user.role);
-  const showLabor =
-    isLaborModuleEnabled() && getCanSeeLabor(session.user.role);
+  const showLabor = getCanSeeLabor(session.user.role);
 
   return (
     isActive && (

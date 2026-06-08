@@ -1,6 +1,5 @@
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { getDefaultDashboardLocationId } from '@/lib/dashboard/default-location';
-import { isLaborModuleEnabled } from '@/lib/labor/feature-flag';
 import { notFound, redirect } from 'next/navigation';
 
 /**
@@ -9,8 +8,6 @@ import { notFound, redirect } from 'next/navigation';
  * Location users land on their own location; office/admin on the default.
  */
 const LaborPage = async () => {
-  if (!isLaborModuleEnabled()) notFound();
-
   const session = await auth();
   const isOfficeOrAdmin = getOfficeOrAdmin(session?.user?.role);
 

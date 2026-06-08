@@ -121,6 +121,9 @@ export function HeatmapPanel({ locationId }: Props) {
                       {w}
                     </th>
                   ))}
+                  <th className="min-w-16 border-l px-2 py-1 font-medium text-amber-700">
+                    Hol
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -149,6 +152,23 @@ export function HeatmapPanel({ locationId }: Props) {
                         </td>
                       );
                     })}
+                    {(() => {
+                      const c = cellAt(7, hour); // holiday profile (dow=7)
+                      return (
+                        <td
+                          className={cn(
+                            'border-l px-2 py-1 tabular-nums',
+                            c?.lowConfidence && 'ring-1 ring-inset ring-amber-400',
+                          )}
+                          style={heatStyle(c?.avgNetSales ?? 0, max)}
+                          title={
+                            c ? `${usd(c.avgNetSales)} · n=${c.sampleN}` : 'no data'
+                          }
+                        >
+                          {c ? Math.round(c.avgNetSales) : ''}
+                        </td>
+                      );
+                    })()}
                   </tr>
                 ))}
               </tbody>

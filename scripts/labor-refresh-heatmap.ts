@@ -15,7 +15,10 @@ import {
   getCloverReportTimeZone,
   zonedCalendarDay,
 } from '@/lib/clover/report-timezone';
-import { ingestCloverHourly } from '@/features/labor/data/clover-hourly';
+import {
+  ingestCloverHourly,
+  ingestHolidayHistory,
+} from '@/features/labor/data/clover-hourly';
 import { rebuildHeatmap } from '@/features/labor/data/heatmap';
 import { HEATMAP_TRAILING_WEEKS } from '@/lib/labor/constants';
 
@@ -51,9 +54,10 @@ async function main() {
         console.log(`Clover error: ${ingest.cloverError}`);
         continue;
       }
+      const holidays = await ingestHolidayHistory(loc.id);
       const rebuilt = await rebuildHeatmap(loc.id, endDate);
       console.log(
-        `ingested ${ingest.buckets} hourly buckets, ${rebuilt.cells} heatmap cells`,
+        `ingested ${ingest.buckets} hourly buckets + ${holidays.dates} holiday dates, ${rebuilt.cells} heatmap cells`,
       );
     } catch (e) {
       console.log(`failed: ${e instanceof Error ? e.message : String(e)}`);

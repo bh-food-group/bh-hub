@@ -18,6 +18,22 @@ PT fee → coverage curve (sales-weighted) → pack into shifts → table       
 sales mix (`weekdayDailyAverages`), fixed payroll evenly. See
 `features/labor/data/distribution.ts`.
 
+**Holiday handling** (`features/labor/data/holidays.ts`, reuses the dashboard's
+`isBcPublicHoliday`):
+- Heatmap: BC statutory holidays are auto-excluded from the normal weekday
+  averages (so a holiday can't skew "a typical Monday"), AND pooled into a
+  separate **holiday profile** stored at `dow = HOLIDAY_DOW (7)`, built from
+  holiday dates over the trailing `HOLIDAY_LOOKBACK_MONTHS` (12).
+- Distribution + engine: a holiday day is weighted by the holiday profile's daily
+  average (its historical tendency) and uses the holiday hourly curve — not the
+  normal weekday. Falls back to the weekday when there's no holiday history.
+- `ingestHolidayHistory` pulls past holiday dates (single-day Clover fetches) so
+  the profile has samples; the cron and `pnpm labor:heatmap` both run it.
+
+**Populating the heatmap locally** (Vercel cron doesn't fire in dev):
+`pnpm labor:heatmap` (all Clover-ready locations) or
+`pnpm labor:heatmap <locationId>`.
+
 ## Layout
 
 - **Engine** (pure, no DB/React): `features/labor/engine/` — `computeCoverage`
@@ -51,16 +67,19 @@ sales mix (`weekdayDailyAverages`), fixed payroll evenly. See
   can't fit a real-length shift is flattened, so realized coverage sums to 29
   (cost 580 ≤ 600). Pinned in `engine.test.ts`.
 
-## Enabling (the module is dark by default)
+## Setup
 
-1. **Apply the migration** (not auto-applied — DB is the production pooler):
-   `pnpm db:migrate` (dev) or `prisma migrate deploy` (prod). Adds the `labor`
-   Postgres schema + tables (`prisma/migrations/20260605170000_labor_module`).
-2. **Set the flag**: `LABOR_MODULE_ENABLED=true`. Optional: `BC_MINIMUM_WAGE`
-   (defaults to 17.85; used only to warn, never hardcoded).
+The module is always on (visible to admin/office/manager — no feature flag).
+Access is still role/location-scoped (see `lib/labor/api-auth.ts`).
+
+1. **Apply migrations**: `prisma migrate deploy` (prod) / `pnpm db:migrate` (dev).
+   Adds the `labor` schema + tables (`20260605170000_labor_module`,
+   `20260608120000_labor_monthly_inputs`).
+2. Optional: `BC_MINIMUM_WAGE` (defaults to 17.85; used only to warn, never
+   hardcoded).
 3. Per location, set **Settings** (wage, open/close hours, budget %, etc.).
-4. The nightly cron ingests Clover history and builds the heatmap; or wait one
-   night. Then generate plans per day.
+4. The nightly cron (`/api/cron/labor-heatmap`) ingests Clover history + builds
+   the heatmap; locally run `pnpm labor:heatmap`. Then generate plans.
 
 ## Out of scope (v2)
 

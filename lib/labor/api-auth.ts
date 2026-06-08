@@ -11,7 +11,6 @@
  *    (no implicit "all locations" read on schedule/budget screens).
  */
 import { auth, getOfficeOrAdmin, requireActiveSession } from '@/lib/auth';
-import { isLaborModuleEnabled } from '@/lib/labor/feature-flag';
 import type { UserRole } from '@prisma/client';
 
 export type LaborAuthOk = {
@@ -29,10 +28,6 @@ export type LaborAuthErr = { ok: false; status: number; error: string };
 export async function getLaborAuthContext(
   requestedLocationId: string | null | undefined,
 ): Promise<LaborAuthOk | LaborAuthErr> {
-  if (!isLaborModuleEnabled()) {
-    return { ok: false, status: 404, error: 'Not found' };
-  }
-
   const session = await auth();
   if (!session?.user?.id) {
     return { ok: false, status: 401, error: 'Authentication required' };

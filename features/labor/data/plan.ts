@@ -16,14 +16,20 @@ import {
   toEngineSettings,
   type ResolvedLaborSettings,
 } from './settings';
-import { salesVectorForDow, weekdayDailyAverages } from './heatmap';
+import {
+  holidayProfile,
+  salesVectorForDate,
+  weekdayDailyAverages,
+} from './heatmap';
 import { computeBudgetCascade, type BudgetCascade } from './budget';
 import {
+  buildMonthExpectations,
   dailyFixedPayrollShare,
-  dailyForecastShare,
-  monthWeekdayCounts,
+  dailyForecastFromExpectations,
   yearMonthOf,
+  type MonthExpectations,
 } from './distribution';
+import { getBcPublicHolidayDisplay } from './holidays';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -78,11 +84,15 @@ export type PlanResult = {
   engine?: EnginePlan;
   sales: { s: number[]; sampleN: number[] };
   settings: LaborEngineSettings;
-  status: 'DRAFT' | 'OVER_BUDGET' | 'BLOCKED';
+  status: 'DRAFT' | 'OVER_BUDGET' | 'BLOCKED' | 'NO_FORECAST';
   shortfall?: number;
   planId: string | null;
   forecastMissing: boolean;
   fixedPayrollMissing: boolean;
+  /** Holiday awareness. */
+  isHoliday: boolean;
+  holidayName: string | null;
+  usedHolidayProfile: boolean;
 };
 
 /** Single-day plan (computes its own shared inputs). */
@@ -91,19 +101,18 @@ export async function generatePlan(
   date: string,
 ): Promise<PlanResult> {
   const yearMonth = yearMonthOf(date);
-  const [resolved, weekdayDailyAvg, monthly] = await Promise.all([
+  const [resolved, weekdayDailyAvg, hp, monthly] = await Promise.all([
     getLaborSettings(locationId),
     weekdayDailyAverages(locationId),
+    holidayProfile(locationId),
     getMonthlyInputs(locationId, yearMonth),
   ]);
-  return runDayPlan({
-    locationId,
-    date,
-    resolved,
+  const expectations = buildMonthExpectations(
+    yearMonth,
     weekdayDailyAvg,
-    monthly,
-    monthCounts: monthWeekdayCounts(yearMonth),
-  });
+    hp.dailyAvg,
+  );
+  return runDayPlan({ locationId, date, resolved, monthly, expectations });
 }
 
 /** Core per-day plan with shared inputs supplied by the caller. */
@@ -111,24 +120,23 @@ export async function runDayPlan(params: {
   locationId: string;
   date: string;
   resolved: ResolvedLaborSettings;
-  weekdayDailyAvg: number[];
   monthly: MonthlyInputs;
-  monthCounts: number[];
+  expectations: MonthExpectations;
 }): Promise<PlanResult> {
-  const { locationId, date, resolved, weekdayDailyAvg, monthly, monthCounts } =
-    params;
+  const { locationId, date, resolved, monthly, expectations } = params;
   const tz = getCloverReportTimeZone();
   const dow = zonedWeekdaySun0ForIsoDate(date, tz);
   const settings = toEngineSettings(resolved);
 
-  const sales = await salesVectorForDow(locationId, dow);
+  // Holiday-aware sales curve (holiday profile on a stat holiday, else weekday).
+  const salesVec = await salesVectorForDate(locationId, date);
+  const sales = { s: salesVec.s, sampleN: salesVec.sampleN };
 
-  const dailyForecast = dailyForecastShare({
-    monthlyForecast: monthly.revenueForecast,
-    dow,
-    weekdayDailyAvg,
-    monthCounts,
-  });
+  const dailyForecast = dailyForecastFromExpectations(
+    monthly.revenueForecast,
+    expectations,
+    date,
+  );
   const dailyFixedPayroll = dailyFixedPayrollShare(
     monthly.fixedPayroll,
     monthly.yearMonth,
@@ -154,7 +162,17 @@ export async function runDayPlan(params: {
     settings,
     forecastMissing: monthly.forecastMissing,
     fixedPayrollMissing: monthly.fixedPayrollMissing,
+    isHoliday: expectations.perDate.get(date)?.holiday ?? false,
+    holidayName: getBcPublicHolidayDisplay(date),
+    usedHolidayProfile: salesVec.usedHolidayProfile,
   };
+
+  // No monthly revenue forecast for this date's month → nothing to budget
+  // against. Distinct from BLOCKED (which means payroll outweighs a real budget),
+  // so the UI can point the user at the missing input rather than payroll.
+  if (monthly.revenueForecast <= 0) {
+    return { ...base, status: 'NO_FORECAST', planId: null };
+  }
 
   // Edge case: payroll consumes the whole budget → block, don't persist.
   if (cascade.blocked) {

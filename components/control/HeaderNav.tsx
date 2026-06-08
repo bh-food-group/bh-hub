@@ -35,11 +35,13 @@ const HeaderNav = ({
           </>
         )}
         {getCanSeeOrderSection(role) && (
-          <HeaderNavItem href="/order" prefetch={false}>Order</HeaderNavItem>
+          <HeaderNavItem href="/order" prefetch={false}>
+            Order
+          </HeaderNavItem>
         )}
         {getCanSeeDeliveryAndCost(role) && (
           <>
-            <HeaderNavItem href="/delivery">Delivery</HeaderNavItem>
+            {/* <HeaderNavItem href="/delivery">Delivery</HeaderNavItem> */}
             <HeaderNavItem href="/cost">Cost</HeaderNavItem>
           </>
         )}

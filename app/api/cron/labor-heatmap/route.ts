@@ -19,19 +19,18 @@ import {
   getCloverReportTimeZone,
   zonedCalendarDay,
 } from '@/lib/clover/report-timezone';
-import { ingestCloverHourly } from '@/features/labor/data/clover-hourly';
+import {
+  ingestCloverHourly,
+  ingestHolidayHistory,
+} from '@/features/labor/data/clover-hourly';
 import { rebuildHeatmap } from '@/features/labor/data/heatmap';
 import { HEATMAP_TRAILING_WEEKS } from '@/lib/labor/constants';
-import { isLaborModuleEnabled } from '@/lib/labor/feature-flag';
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET?.trim();
   const authHeader = request.headers.get('authorization') ?? '';
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  if (!isLaborModuleEnabled()) {
-    return NextResponse.json({ skipped: 'LABOR_MODULE_ENABLED is off' });
   }
 
   const tz = getCloverReportTimeZone();
@@ -55,10 +54,20 @@ export async function GET(request: NextRequest) {
   for (const { id, name } of locations) {
     try {
       const ingest = await ingestCloverHourly(id, startDate, endDate);
-      const rebuilt = ingest.cloverNotConfigured
-        ? { cells: 0 }
-        : await rebuildHeatmap(id, endDate);
-      results.push({ id, name, ...ingest, cells: rebuilt.cells });
+      if (ingest.cloverNotConfigured) {
+        results.push({ id, name, ...ingest, cells: 0 });
+        continue;
+      }
+      // Pull older holiday dates too, so the holiday profile has samples.
+      const holidays = await ingestHolidayHistory(id);
+      const rebuilt = await rebuildHeatmap(id, endDate);
+      results.push({
+        id,
+        name,
+        buckets: ingest.buckets,
+        holidayDates: holidays.dates,
+        cells: rebuilt.cells,
+      });
     } catch (e) {
       results.push({ id, name, error: String(e).slice(0, 120) });
     }

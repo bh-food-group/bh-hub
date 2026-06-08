@@ -1,7 +1,6 @@
 import { auth, getOfficeOrAdmin } from '@/lib/auth';
 import { prisma } from '@/lib/core';
 import { getLocationById } from '@/lib/core/location-cache';
-import { isLaborModuleEnabled } from '@/lib/labor/feature-flag';
 import { LaborModule } from '@/features/labor/components/LaborModule';
 import { notFound, redirect } from 'next/navigation';
 
@@ -17,8 +16,6 @@ const LaborLocationPage = async ({
 }: {
   params: Promise<{ id: string }>;
 }) => {
-  if (!isLaborModuleEnabled()) notFound();
-
   const [session, { id }] = await Promise.all([auth(), params]);
   if (!session?.user) redirect('/auth');
 
@@ -37,9 +34,12 @@ const LaborLocationPage = async ({
   const location = await getLocationById(id);
   if (!location) return notFound();
 
-  // Office/admin get a selector across all locations.
+  // Office/admin get a selector across budget-visible locations only
+  // (Location setting "Show in Budget"). The current location is always included
+  // so the selector reflects where they are even if it is hidden from budget.
   const locations = isOfficeOrAdmin
     ? await prisma.location.findMany({
+        where: { OR: [{ showBudget: true }, { id }] },
         orderBy: { createdAt: 'asc' },
         select: { id: true, code: true, name: true },
       })

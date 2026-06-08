@@ -13,10 +13,18 @@ export {
   rebuildHeatmap,
   readHeatmap,
   salesVectorForDow,
+  salesVectorForDate,
+  holidayProfile,
   weekdayDailyAverages,
   trimmedMean,
   type HeatmapCell,
 } from './heatmap';
+export {
+  isBcPublicHoliday,
+  getBcPublicHolidayDisplay,
+  listBcHolidaysInRange,
+} from './holidays';
+export { ingestHolidayHistory } from './clover-hourly';
 export { computeBudgetCascade, type BudgetCascade } from './budget';
 export {
   isValidYearMonth,
@@ -25,6 +33,10 @@ export {
   monthWeekdayCounts,
   dailyForecastShare,
   dailyFixedPayrollShare,
+  buildMonthExpectations,
+  dailyForecastFromExpectations,
+  type MonthExpectations,
+  type DayExpectation,
 } from './distribution';
 export {
   generatePlan,

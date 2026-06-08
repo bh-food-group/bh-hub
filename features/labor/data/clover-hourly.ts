@@ -18,6 +18,9 @@ import {
   zonedCalendarDay,
   zonedHour,
 } from '@/lib/clover/report-timezone';
+import { format, parseISO, subMonths } from 'date-fns';
+import { listBcHolidaysInRange } from './holidays';
+import { HOLIDAY_LOOKBACK_MONTHS } from '@/lib/labor/constants';
 
 export type HourlyBucket = {
   businessDate: string; // YYYY-MM-DD (store-local)
@@ -130,4 +133,31 @@ export async function ingestCloverHourly(
       cloverError: err instanceof Error ? err.message : 'Clover API error',
     };
   }
+}
+
+/**
+ * Ingest each BC statutory holiday date over the trailing `lookbackMonths` so the
+ * holiday sales profile has enough samples. Holidays inside the standard 8-week
+ * window are already covered by the regular ingest; this fills in the older ones.
+ * Each holiday is a single-day fetch, so this is ~11 small calls per year.
+ */
+export async function ingestHolidayHistory(
+  locationId: string,
+  lookbackMonths: number = HOLIDAY_LOOKBACK_MONTHS,
+): Promise<{ dates: number; buckets: number; cloverNotConfigured?: boolean }> {
+  const tz = getCloverReportTimeZone();
+  const end = zonedCalendarDay(Date.now(), tz);
+  const start = format(subMonths(parseISO(end), lookbackMonths), 'yyyy-MM-dd');
+  const holidays = listBcHolidaysInRange(start, end);
+
+  let buckets = 0;
+  let dates = 0;
+  for (const date of holidays) {
+    const r = await ingestCloverHourly(locationId, date, date);
+    if (r.cloverNotConfigured) return { dates, buckets, cloverNotConfigured: true };
+    if (r.cloverError) continue;
+    buckets += r.buckets;
+    dates += 1;
+  }
+  return { dates, buckets };
 }

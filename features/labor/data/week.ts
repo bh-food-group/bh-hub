@@ -6,8 +6,12 @@
  */
 import { addDays, format, parseISO } from 'date-fns';
 import { getLaborSettings } from './settings';
-import { weekdayDailyAverages } from './heatmap';
-import { monthWeekdayCounts, yearMonthOf } from './distribution';
+import { holidayProfile, weekdayDailyAverages } from './heatmap';
+import {
+  buildMonthExpectations,
+  yearMonthOf,
+  type MonthExpectations,
+} from './distribution';
 import {
   getMonthlyInputs,
   runDayPlan,
@@ -63,20 +67,22 @@ export async function generateWeekPlans(
   }
   const dates = weekDates(weekStart);
 
-  const [resolved, weekdayDailyAvg] = await Promise.all([
+  const [resolved, weekdayDailyAvg, hp] = await Promise.all([
     getLaborSettings(locationId),
     weekdayDailyAverages(locationId),
+    holidayProfile(locationId),
   ]);
 
-  // Cache monthly inputs + counts per distinct year-month in the week.
+  // Cache monthly inputs + holiday-aware expectations per distinct year-month in
+  // the week (a week may straddle a month boundary).
   const months = new Map<
     string,
-    { monthly: MonthlyInputs; monthCounts: number[] }
+    { monthly: MonthlyInputs; expectations: MonthExpectations }
   >();
   for (const ym of new Set(dates.map(yearMonthOf))) {
     months.set(ym, {
       monthly: await getMonthlyInputs(locationId, ym),
-      monthCounts: monthWeekdayCounts(ym),
+      expectations: buildMonthExpectations(ym, weekdayDailyAvg, hp.dailyAvg),
     });
   }
 
@@ -88,9 +94,8 @@ export async function generateWeekPlans(
         locationId,
         date,
         resolved,
-        weekdayDailyAvg,
         monthly: month.monthly,
-        monthCounts: month.monthCounts,
+        expectations: month.expectations,
       }),
     );
   }

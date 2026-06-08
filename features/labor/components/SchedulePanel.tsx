@@ -107,7 +107,9 @@ export function SchedulePanel({ locationId, date, onDateChange }: Props) {
                   ? 'border-destructive/60 text-destructive'
                   : p.status === 'OVER_BUDGET'
                     ? 'border-amber-500/60 text-amber-600'
-                    : 'border-border';
+                    : p.status === 'NO_FORECAST'
+                      ? 'border-dashed border-muted-foreground/40 text-muted-foreground'
+                      : 'border-border';
               return (
                 <button
                   key={p.date}
@@ -132,6 +134,18 @@ export function SchedulePanel({ locationId, date, onDateChange }: Props) {
                   >
                     {md(p.date)}
                   </span>
+                  {p.isHoliday && (
+                    <span
+                      className={cn(
+                        'mt-0.5 rounded px-1 text-[10px] font-medium',
+                        selected === i
+                          ? 'bg-primary-foreground/20 text-primary-foreground'
+                          : 'bg-amber-100 text-amber-700',
+                      )}
+                    >
+                      Holiday
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -161,6 +175,32 @@ function DaySchedule({
 }) {
   return (
     <div className="space-y-4">
+      {plan.isHoliday && (
+        <Alert>
+          <TriangleAlert className="h-4 w-4" />
+          <AlertTitle>
+            Statutory holiday{plan.holidayName ? ` — ${plan.holidayName}` : ''}
+          </AlertTitle>
+          <AlertDescription>
+            {plan.usedHolidayProfile
+              ? 'Coverage and budget use the historical holiday sales profile (not the normal weekday).'
+              : 'No holiday sales history yet — falling back to the normal weekday pattern. The holiday profile builds as past holidays are ingested.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {plan.status === 'NO_FORECAST' && (
+        <Alert>
+          <TriangleAlert className="h-4 w-4" />
+          <AlertTitle>No revenue forecast for {plan.yearMonth}</AlertTitle>
+          <AlertDescription>
+            A monthly revenue forecast hasn&apos;t been entered for this month, so
+            there&apos;s no budget to schedule against. The office can set it in
+            the Budget Planner; then regenerate this week.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {plan.status === 'BLOCKED' && (
         <Alert variant="destructive">
           <TriangleAlert className="h-4 w-4" />
@@ -205,6 +245,14 @@ function DaySchedule({
           </AlertDescription>
         </Alert>
       )}
+
+      {plan.fixedPayrollMissing &&
+        (plan.status === 'DRAFT' || plan.status === 'OVER_BUDGET') && (
+          <p className="text-xs text-muted-foreground">
+            Fixed payroll for {plan.yearMonth} isn&apos;t entered — treated as $0
+            in this plan.
+          </p>
+        )}
 
       {plan.engine && plan.status !== 'BLOCKED' && (
         <Card>

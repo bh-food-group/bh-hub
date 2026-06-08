@@ -222,7 +222,12 @@ export function BudgetPlannerPanel({
           <CardHeader>
             <CardTitle>Per-weekday distribution</CardTitle>
             <p className="text-sm text-muted-foreground">
-              How the monthly forecast lands on each weekday this month.
+              How the monthly forecast lands on each weekday this month. Holidays
+              are pulled out and weighted by the holiday profile
+              {month.holidayProfileSampleN > 0
+                ? ` (${month.holidayProfileSampleN} past holiday day${month.holidayProfileSampleN === 1 ? '' : 's'} sampled)`
+                : ' (no holiday history yet → falls back to the weekday)'}
+              .
             </p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -266,6 +271,57 @@ export function BudgetPlannerPanel({
                 ))}
               </tbody>
             </table>
+
+            {month.holidays.length > 0 && (
+              <table className="mt-4 w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Holiday</th>
+                    <th className="py-2 pr-4 font-medium">Date</th>
+                    <th className="py-2 pr-4 text-right font-medium">
+                      Day forecast
+                    </th>
+                    <th className="py-2 pr-4 text-right font-medium">
+                      Labor budget
+                    </th>
+                    <th className="py-2 pr-4 text-right font-medium">PT fee</th>
+                    <th className="py-2 text-right font-medium">
+                      Affordable hrs
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {month.holidays.map((h) => (
+                    <tr key={h.date} className="border-b last:border-0">
+                      <td className="py-1.5 pr-4">
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+                          {h.label ?? 'Holiday'}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-4 tabular-nums">{h.date}</td>
+                      <td className="py-1.5 pr-4 text-right tabular-nums">
+                        {usd(h.dailyForecast)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right tabular-nums">
+                        {usd(h.laborBudget)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right tabular-nums">
+                        {h.blocked ? (
+                          <span className="text-destructive">
+                            {usd(h.ptLaborFee)}
+                          </span>
+                        ) : (
+                          usd(h.ptLaborFee)
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums">
+                        {hrs(h.affordableHrs)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardContent>
         </Card>
       )}
