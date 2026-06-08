@@ -113,6 +113,7 @@ export function LaborModule({
           locationId={locationId}
           date={date}
           onDateChange={setDate}
+          isOfficeOrAdmin={isOfficeOrAdmin}
         />
       )}
       {tab === 'budget' && (

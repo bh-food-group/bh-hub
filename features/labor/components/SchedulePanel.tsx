@@ -22,6 +22,7 @@ type Props = {
   locationId: string;
   date: string; // anchor date; the week containing it is generated
   onDateChange: (date: string) => void;
+  isOfficeOrAdmin: boolean;
 };
 
 /** Sunday (dow=0) of the week containing `date`, as YYYY-MM-DD. */
@@ -41,7 +42,12 @@ function md(dateIso: string): string {
   return `${Number(m)}/${Number(d)}`;
 }
 
-export function SchedulePanel({ locationId, date, onDateChange }: Props) {
+export function SchedulePanel({
+  locationId,
+  date,
+  onDateChange,
+  isOfficeOrAdmin,
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [plans, setPlans] = useState<PlanResult[] | null>(null);
   const [selected, setSelected] = useState(0);
@@ -156,6 +162,7 @@ export function SchedulePanel({ locationId, date, onDateChange }: Props) {
               plan={plan}
               lowConfidence={lowConfidence}
               noHistory={noHistory}
+              isOfficeOrAdmin={isOfficeOrAdmin}
             />
           )}
         </>
@@ -168,10 +175,12 @@ function DaySchedule({
   plan,
   lowConfidence,
   noHistory,
+  isOfficeOrAdmin,
 }: {
   plan: PlanResult;
   lowConfidence: boolean;
   noHistory: boolean;
+  isOfficeOrAdmin: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -192,11 +201,11 @@ function DaySchedule({
       {plan.status === 'NO_FORECAST' && (
         <Alert>
           <TriangleAlert className="h-4 w-4" />
-          <AlertTitle>No revenue forecast for {plan.yearMonth}</AlertTitle>
+          <AlertTitle>No budget set for {plan.yearMonth}</AlertTitle>
           <AlertDescription>
-            A monthly revenue forecast hasn&apos;t been entered for this month, so
-            there&apos;s no budget to schedule against. The office can set it in
-            the Budget Planner; then regenerate this week.
+            {isOfficeOrAdmin
+              ? "A monthly revenue forecast hasn't been entered for this month, so there's no budget to schedule against. Set it in the Budget Planner, then regenerate this week."
+              : 'No budget has been set for this month yet. Please ask the office to set the budget (monthly revenue forecast) for this month, then regenerate this week.'}
           </AlertDescription>
         </Alert>
       )}
