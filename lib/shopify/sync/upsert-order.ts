@@ -18,6 +18,7 @@ import type { AdminApiClient } from '@shopify/admin-api-client';
 import { fetchFulfillmentOrderLocations } from '@/lib/shopify/fetchFulfillmentOrderLocations';
 import { createShopifyAdminGraphqlClient } from '@/lib/shopify/createFulfillment';
 import { getShopifyAdminEnv, isShopifyAdminEnvConfigured } from '@/lib/shopify/env';
+import { valuesDiffer } from './sync-diff';
 
 function parseOrderNumber(name: string | null): number {
   if (!name) return 0;
@@ -104,31 +105,52 @@ export async function upsertShopifyCustomer(
   );
   const billingFromShopify = shopifyAddrToCustomerAddr(order.billingAddress);
 
-  const record = await prisma.shopifyCustomer.upsert({
+  // Fields written on update. Excludes `syncedAt` so an unchanged customer is a
+  // true no-op (no row rewrite / WAL) — syncedAt is only bumped when something
+  // actually changed. See sync-diff.ts.
+  const updateData = {
+    displayName: cust.displayName,
+    email: cust.email,
+    phone: cust.phone,
+    company,
+    shippingAddress: shippingFromShopify ?? undefined,
+    billingAddress: billingFromShopify ?? undefined,
+  };
+
+  const existing = await prisma.shopifyCustomer.findUnique({
     where: { shopifyGid: cust.id },
-    create: {
-      shopifyGid: cust.id,
-      displayName: cust.displayName,
-      email: cust.email,
-      phone: cust.phone,
-      company,
-      shippingAddress: shippingFromShopify ?? undefined,
-      billingAddress: billingFromShopify ?? undefined,
-      billingSameAsShipping: false,
-      syncedAt: new Date(),
-    },
-    update: {
-      displayName: cust.displayName,
-      email: cust.email,
-      phone: cust.phone,
-      company,
-      shippingAddress: shippingFromShopify ?? undefined,
-      billingAddress: billingFromShopify ?? undefined,
-      syncedAt: new Date(),
+    select: {
+      id: true,
+      displayName: true,
+      email: true,
+      phone: true,
+      company: true,
+      shippingAddress: true,
+      billingAddress: true,
     },
   });
 
-  return record.id;
+  if (!existing) {
+    const created = await prisma.shopifyCustomer.create({
+      data: {
+        shopifyGid: cust.id,
+        ...updateData,
+        billingSameAsShipping: false,
+        syncedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  if (valuesDiffer(existing, updateData)) {
+    await prisma.shopifyCustomer.update({
+      where: { id: existing.id },
+      data: { ...updateData, syncedAt: new Date() },
+    });
+  }
+
+  return existing.id;
 }
 
 function pickMailingAddressForCustomer(node: ShopifyAdminCustomerNode): ShopifyMailingAddress | null {
@@ -156,27 +178,46 @@ export async function upsertShopifyCustomerFromAdminNode(
   const company = mail?.company ?? node.defaultAddress?.company ?? null;
   const shippingFromShopify = shopifyAddrToCustomerAddr(mail);
 
-  await prisma.shopifyCustomer.upsert({
+  // Update fields exclude syncedAt so unchanged customers are a no-op. Shipping
+  // is only written when Shopify provided one (preserves office-only edits).
+  const updateData = {
+    displayName,
+    email: node.email,
+    phone: node.phone,
+    company,
+    ...(shippingFromShopify !== null ? { shippingAddress: shippingFromShopify } : {}),
+  };
+
+  const existing = await prisma.shopifyCustomer.findUnique({
     where: { shopifyGid: node.id },
-    create: {
-      shopifyGid: node.id,
-      displayName,
-      email: node.email,
-      phone: node.phone,
-      company,
-      shippingAddress: shippingFromShopify ?? undefined,
-      billingSameAsShipping: true,
-      syncedAt: new Date(),
-    },
-    update: {
-      displayName,
-      email: node.email,
-      phone: node.phone,
-      company,
-      syncedAt: new Date(),
-      ...(shippingFromShopify !== null ? { shippingAddress: shippingFromShopify } : {}),
+    select: {
+      id: true,
+      displayName: true,
+      email: true,
+      phone: true,
+      company: true,
+      shippingAddress: true,
     },
   });
+
+  if (!existing) {
+    await prisma.shopifyCustomer.create({
+      data: {
+        shopifyGid: node.id,
+        ...updateData,
+        billingSameAsShipping: true,
+        syncedAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  if (valuesDiffer(existing, updateData)) {
+    await prisma.shopifyCustomer.update({
+      where: { id: existing.id },
+      data: { ...updateData, syncedAt: new Date() },
+    });
+  }
 }
 
 /**
@@ -187,45 +228,84 @@ export async function upsertShopifyOrder(
   order: ShopifyOrderNode,
   customerId: string | null,
 ): Promise<{ id: string; shopifyGid: string }> {
-  const shopifyOrder = await prisma.shopifyOrder.upsert({
+  // Read the existing order (+ its line items) once, then write only what
+  // actually changed. Re-upserting unchanged rows on every sync was the main
+  // Disk IO source. `syncedAt` is excluded from the diff and only bumped on a
+  // real change. See sync-diff.ts.
+  const existingOrder = await prisma.shopifyOrder.findUnique({
     where: { shopifyGid: order.id },
-    create: {
-      shopifyGid: order.id,
-      name: order.name ?? '',
-      orderNumber: parseOrderNumber(order.name),
-      customerId,
-      email: order.email,
-      displayFulfillmentStatus: order.displayFulfillmentStatus,
-      displayFinancialStatus: order.displayFinancialStatus,
-      currencyCode: order.currencyCode,
-      totalPrice: toDecimalOrNull(order.totalPriceSet?.shopMoney?.amount),
-      processedAt: order.processedAt ? new Date(order.processedAt) : null,
-      shopifyCreatedAt: order.createdAt ? new Date(order.createdAt) : null,
-      billingAddress: addressToJson(order.billingAddress),
-      shippingAddress: addressToJson(order.shippingAddress),
-      customerNote: customerNoteFromShopify(order.note),
-      syncedAt: new Date(),
-    },
-    update: {
-      name: order.name ?? '',
-      orderNumber: parseOrderNumber(order.name),
-      customerId,
-      email: order.email,
-      displayFulfillmentStatus: order.displayFulfillmentStatus,
-      displayFinancialStatus: order.displayFinancialStatus,
-      currencyCode: order.currencyCode,
-      totalPrice: toDecimalOrNull(order.totalPriceSet?.shopMoney?.amount),
-      processedAt: order.processedAt ? new Date(order.processedAt) : null,
-      shopifyCreatedAt: order.createdAt ? new Date(order.createdAt) : null,
-      billingAddress: addressToJson(order.billingAddress),
-      shippingAddress: addressToJson(order.shippingAddress),
-      customerNote: customerNoteFromShopify(order.note),
-      syncedAt: new Date(),
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      customerId: true,
+      email: true,
+      displayFulfillmentStatus: true,
+      displayFinancialStatus: true,
+      currencyCode: true,
+      totalPrice: true,
+      processedAt: true,
+      shopifyCreatedAt: true,
+      billingAddress: true,
+      shippingAddress: true,
+      customerNote: true,
+      lineItems: {
+        select: {
+          id: true,
+          shopifyGid: true,
+          orderId: true,
+          title: true,
+          sku: true,
+          variantTitle: true,
+          productGid: true,
+          variantGid: true,
+          imageUrl: true,
+          vendor: true,
+          quantity: true,
+          price: true,
+          unitCost: true,
+        },
+      },
     },
   });
 
+  const orderData = {
+    name: order.name ?? '',
+    orderNumber: parseOrderNumber(order.name),
+    customerId,
+    email: order.email,
+    displayFulfillmentStatus: order.displayFulfillmentStatus,
+    displayFinancialStatus: order.displayFinancialStatus,
+    currencyCode: order.currencyCode,
+    totalPrice: toDecimalOrNull(order.totalPriceSet?.shopMoney?.amount),
+    processedAt: order.processedAt ? new Date(order.processedAt) : null,
+    shopifyCreatedAt: order.createdAt ? new Date(order.createdAt) : null,
+    billingAddress: addressToJson(order.billingAddress),
+    shippingAddress: addressToJson(order.shippingAddress),
+    customerNote: customerNoteFromShopify(order.note),
+  };
+
+  let shopifyOrder: { id: string };
+  if (!existingOrder) {
+    shopifyOrder = await prisma.shopifyOrder.create({
+      data: { shopifyGid: order.id, ...orderData, syncedAt: new Date() },
+      select: { id: true },
+    });
+  } else {
+    if (valuesDiffer(existingOrder, orderData)) {
+      await prisma.shopifyOrder.update({
+        where: { id: existingOrder.id },
+        data: { ...orderData, syncedAt: new Date() },
+      });
+    }
+    shopifyOrder = { id: existingOrder.id };
+  }
+
   const lineItems = order.lineItems.edges.map((e) => e.node);
   const gids = lineItems.map((li) => li.id);
+  const existingByGid = new Map(
+    (existingOrder?.lineItems ?? []).map((li) => [li.shopifyGid, li]),
+  );
 
   await Promise.all(
     lineItems.map((li) => {
@@ -235,49 +315,41 @@ export async function upsertShopifyOrder(
         li.variant?.product?.id?.trim() ||
         li.product?.id?.trim() ||
         null;
-      return prisma.shopifyOrderLineItem.upsert({
-        where: { shopifyGid: li.id },
-        create: {
-          shopifyGid: li.id,
-          orderId: shopifyOrder.id,
-          title: li.title,
-          sku: li.sku ?? li.variant?.sku ?? null,
-          variantTitle: li.variant?.title ?? null,
-          productGid,
-          variantGid: li.variant?.id ?? null,
-          imageUrl,
-          vendor: li.vendor ?? null,
-          quantity: qty,
-          price: toDecimalOrNull(li.discountedUnitPriceSet?.shopMoney?.amount),
-          unitCost: toDecimalOrNull(li.variant?.inventoryItem?.unitCost?.amount),
-        },
-        update: {
-          orderId: shopifyOrder.id,
-          title: li.title,
-          sku: li.sku ?? li.variant?.sku ?? null,
-          variantTitle: li.variant?.title ?? null,
-          productGid,
-          variantGid: li.variant?.id ?? null,
-          imageUrl,
-          vendor: li.vendor ?? null,
-          quantity: qty,
-          price: toDecimalOrNull(li.discountedUnitPriceSet?.shopMoney?.amount),
-          unitCost: toDecimalOrNull(li.variant?.inventoryItem?.unitCost?.amount),
-        },
-      });
+      const liData = {
+        orderId: shopifyOrder.id,
+        title: li.title,
+        sku: li.sku ?? li.variant?.sku ?? null,
+        variantTitle: li.variant?.title ?? null,
+        productGid,
+        variantGid: li.variant?.id ?? null,
+        imageUrl,
+        vendor: li.vendor ?? null,
+        quantity: qty,
+        price: toDecimalOrNull(li.discountedUnitPriceSet?.shopMoney?.amount),
+        unitCost: toDecimalOrNull(li.variant?.inventoryItem?.unitCost?.amount),
+      };
+      const existingLi = existingByGid.get(li.id);
+      if (!existingLi) {
+        return prisma.shopifyOrderLineItem.create({
+          data: { shopifyGid: li.id, ...liData },
+        });
+      }
+      if (valuesDiffer(existingLi, liData)) {
+        return prisma.shopifyOrderLineItem.update({
+          where: { id: existingLi.id },
+          data: liData,
+        });
+      }
+      return Promise.resolve();
     }),
   );
 
-  const removeWhere =
-    gids.length > 0
-      ? { orderId: shopifyOrder.id, shopifyGid: { notIn: gids } }
-      : { orderId: shopifyOrder.id };
-
-  const toRemove = await prisma.shopifyOrderLineItem.findMany({
-    where: removeWhere,
-    select: { id: true },
-  });
-  const removeIds = toRemove.map((r) => r.id);
+  // Line items present locally but no longer on the Shopify order. Computed from
+  // the rows we already read — no extra query.
+  const desiredGids = new Set(gids);
+  const removeIds = (existingOrder?.lineItems ?? [])
+    .filter((li) => !desiredGids.has(li.shopifyGid))
+    .map((li) => li.id);
   if (removeIds.length > 0) {
     await prisma.purchaseOrderLineItem.updateMany({
       where: { shopifyOrderLineItemId: { in: removeIds } },
@@ -303,7 +375,7 @@ export async function upsertShopifyOrder(
 
   await recomputePurchaseOrderStatusesForShopifyOrderId(shopifyOrder.id);
 
-  return { id: shopifyOrder.id, shopifyGid: shopifyOrder.shopifyGid };
+  return { id: shopifyOrder.id, shopifyGid: order.id };
 }
 
 /**
@@ -336,7 +408,14 @@ export async function syncOneOrder(
       await Promise.all(
         Array.from(locationMap.entries()).map(([shopifyGid, locationGid]) =>
           prisma.shopifyOrderLineItem.updateMany({
-            where: { shopifyGid, orderId: result.id },
+            // Guard on `not: locationGid` so unchanged rows produce zero writes
+            // (no new row version / WAL). The location rarely changes, so without
+            // this every sync re-wrote every line item — a major Disk IO source.
+            where: {
+              shopifyGid,
+              orderId: result.id,
+              shopifyLocationGid: { not: locationGid },
+            },
             data: { shopifyLocationGid: locationGid },
           }),
         ),

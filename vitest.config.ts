@@ -5,6 +5,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['features/labor/engine/**/*.test.ts'],
+    include: [
+      'features/labor/engine/**/*.test.ts',
+      'lib/shopify/sync/**/*.test.ts',
+    ],
   },
 });
