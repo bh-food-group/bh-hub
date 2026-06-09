@@ -31,14 +31,20 @@ import { api } from '@/lib/api';
 import { ClassName } from '@/types/className';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { LocationSummary } from '@/types/location';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+
+// Roles a user may self-assign during onboarding. Keep this in sync with the
+// `role` enum below and the server schema (lib/api/schemas.ts onboardingPostSchema).
+// `admin` is assigned out-of-band; `employee`/`supplier` are not yet wired up
+// (no portal / no assignment path), so they are intentionally excluded here.
+const ONBOARDING_ROLES = ['office', 'manager', 'supply'] as const;
 
 const onboardingSchema = z
   .object({
     name: z.string().min(1, 'Display name is required'),
-    role: z.enum(['manager', 'supply', 'office']),
+    role: z.enum(ONBOARDING_ROLES),
     locationId: z.string().optional(),
   })
   .refine(
@@ -60,7 +66,6 @@ export function OnboardingForm({
   userName,
   className,
 }: OnboardingFormProps) {
-  const router = useRouter();
   const form = useForm<OnboardingFormValues>({
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
@@ -77,6 +82,10 @@ export function OnboardingForm({
     watch,
   } = form;
   const role = watch('role');
+  // Covers the gap between the POST finishing and the full-page navigation
+  // actually swapping the document, so the user sees a loader the whole time
+  // instead of an idle, already-submitted form.
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const submit = async (data: OnboardingFormValues) => {
     const result = await api('/onboarding', {
@@ -90,12 +99,25 @@ export function OnboardingForm({
 
     if (!result.ok) return;
 
-    router.refresh();
-    router.push('/');
+    // Hard navigation to the routing hub. No JWT refresh here: the destination
+    // (`/waiting`) and the hub both read status from the DB, so a stale token is
+    // irrelevant — and awaiting next-auth's update() can hang, which would strand
+    // the user on this form with the submit spinner stuck on.
+    setIsNavigating(true);
+    window.location.href = '/';
   };
 
   return (
     <Form {...form}>
+      {isNavigating && (
+        <div
+          role="status"
+          aria-label="Loading"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+        >
+          <Spinner className="size-8" />
+        </div>
+      )}
       <form onSubmit={handleSubmit(submit)} className={className}>
         <Card>
           <CardHeader>
@@ -137,7 +159,11 @@ export function OnboardingForm({
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
-                        {ROLES.filter((opt) => opt.value !== 'admin').map((opt) => (
+                        {ROLES.filter((opt) =>
+                          ONBOARDING_ROLES.includes(
+                            opt.value as (typeof ONBOARDING_ROLES)[number],
+                          ),
+                        ).map((opt) => (
                           <SelectItem key={opt.value} value={opt.value}>
                             {opt.label}
                           </SelectItem>

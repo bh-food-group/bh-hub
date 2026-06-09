@@ -31,11 +31,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         undefined;
       if (!userId) return token;
 
+      // While a user is in a transitional state, re-read status/role from the DB
+      // on every token resolution so the proxy (which routes purely off the JWT)
+      // reflects onboarding completion and admin approval immediately — the
+      // client-side session.update() is unreliable here. Terminal states
+      // (active/rejected) skip this, so steady-state requests never re-hit the DB.
+      const isTransitional =
+        token.status === 'pending_onboarding' ||
+        token.status === 'pending_approval';
+
       const needsProfile =
         user != null ||
         trigger === 'update' ||
         token.role === undefined ||
-        token.status === undefined;
+        token.status === undefined ||
+        isTransitional;
 
       if (!needsProfile) return token;
 

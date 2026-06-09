@@ -2,6 +2,11 @@ import { prisma } from '@/lib/core/prisma';
 import type { UserRole } from '@/types/user';
 import { USER_ROLES } from '@/types/user';
 
+/** Cache tag for the admin/office "Pending approvals" list. Revalidate this
+ * whenever a user's onboarding/approval status changes so the box updates
+ * immediately instead of waiting for the 60s time-based revalidation. */
+export const PENDING_APPROVALS_TAG = 'pending-approvals';
+
 export type PendingUser = {
   id: string;
   name: string;

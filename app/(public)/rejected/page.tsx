@@ -38,16 +38,16 @@ export default async function RejectedPage() {
               <p className="flex items-center gap-1 text-blue-500">
                 <Mail size={14} />
                 <a
-                  href="mailto:marketing@cmarket.ca"
+                  href="mailto:order@cmarket.ca"
                   className="underline text-blue-500"
                 >
-                  marketing@cmarket.ca
+                  order@cmarket.ca
                 </a>
               </p>
               <p className="flex items-center gap-1 text-blue-500">
                 <Phone size={14} />
-                <a href="tel:+6727271704" className="underline">
-                  +1 672 727 1704
+                <a href="tel:+16046908181" className="underline">
+                  +1 (604) 690-8181
                 </a>
               </p>
             </div>

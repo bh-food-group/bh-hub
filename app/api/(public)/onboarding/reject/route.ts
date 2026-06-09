@@ -1,7 +1,9 @@
 import { parseBody, onboardingRejectPostSchema } from '@/lib/api/schemas';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/core/prisma';
+import { PENDING_APPROVALS_TAG } from '@/features/onboard/utils/onboarding';
 import { UserRole } from '@prisma/client';
+import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 
 const APPROVER_ROLES: UserRole[] = ['admin', 'office'];
@@ -50,6 +52,9 @@ export async function POST(request: Request) {
       rejectReason: reason || null,
     },
   });
+
+  // Drop the rejected user from the "Pending approvals" box immediately.
+  revalidateTag(PENDING_APPROVALS_TAG, { expire: 0 });
 
   return NextResponse.json({ ok: true });
 }

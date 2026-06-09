@@ -8,6 +8,11 @@ export default async function OnboardingPage() {
   const session = await auth();
   if (!session?.user) redirect('/auth');
 
+  // No status guard here on purpose: routing decisions live solely in `/`
+  // (app/page.tsx). Adding an opposite-condition redirect here would create a
+  // `/` ↔ `/onboarding` loop whenever the two DB reads briefly disagree.
+  // Re-submission by a non-pending_onboarding user is blocked in the POST
+  // route instead (app/api/(public)/onboarding/route.ts).
   const locations = await prisma.location.findMany({
     orderBy: { createdAt: 'asc' },
   });
