@@ -408,13 +408,20 @@ export async function syncOneOrder(
       await Promise.all(
         Array.from(locationMap.entries()).map(([shopifyGid, locationGid]) =>
           prisma.shopifyOrderLineItem.updateMany({
-            // Guard on `not: locationGid` so unchanged rows produce zero writes
-            // (no new row version / WAL). The location rarely changes, so without
-            // this every sync re-wrote every line item — a major Disk IO source.
+            // Skip unchanged rows so they produce zero writes (no new row version /
+            // WAL) — the location rarely changes, so without this every sync re-wrote
+            // every line item, a major Disk IO source. The explicit `null` branch is
+            // required: `{ not: locationGid }` compiles to `shopify_location_gid <>
+            // locationGid`, and in SQL `NULL <> '…'` is NULL (not TRUE), so rows that
+            // have never had a location would otherwise never be backfilled — leaving
+            // vendor+location lines stuck under the wrong supplier in the inbox.
             where: {
               shopifyGid,
               orderId: result.id,
-              shopifyLocationGid: { not: locationGid },
+              OR: [
+                { shopifyLocationGid: null },
+                { shopifyLocationGid: { not: locationGid } },
+              ],
             },
             data: { shopifyLocationGid: locationGid },
           }),
