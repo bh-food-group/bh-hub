@@ -95,6 +95,10 @@ export function computeDefaultExpectedYmd({
     return formatYmdUtc(anchor);
   }
 
+  if (schedule.rule.kind === 'same_day') {
+    return formatYmdUtc(anchor);
+  }
+
   if (schedule.rule.kind === 'day_after_creation') {
     return formatYmdUtc(addUtcDays(anchor, 1));
   }

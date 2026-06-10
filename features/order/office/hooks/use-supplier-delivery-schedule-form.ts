@@ -22,6 +22,7 @@ export const ISO_WEEKDAY_OPTIONS: { value: number; label: string }[] = [
 
 export type DeliveryRuleKind =
   | 'off'
+  | 'same_day'
   | 'next'
   | 'day_after_creation'
   | 'preset'
@@ -33,6 +34,7 @@ export function ruleKindFromSchedule(
   if (raw == null) return 'off';
   const s = parseSupplierDeliverySchedule(raw);
   if (!s) return 'off';
+  if (s.rule.kind === 'same_day') return 'same_day';
   if (s.rule.kind === 'day_after_creation') return 'day_after_creation';
   if (s.rule.kind === 'next_delivery_day') return 'next';
   if (s.rule.kind === 'preset') return 'preset';
@@ -122,6 +124,12 @@ export function useSupplierDeliveryScheduleForm(
       if (deliveryRuleKind === 'partition') {
         return supplierDeliveryScheduleFromPartitionWindows(partitionWindows);
       }
+      if (deliveryRuleKind === 'same_day') {
+        return {
+          deliveryWeekdays: [],
+          rule: { kind: 'same_day' },
+        };
+      }
       if (deliveryRuleKind === 'day_after_creation') {
         return {
           deliveryWeekdays: [],
@@ -151,6 +159,11 @@ export function useSupplierDeliveryScheduleForm(
   const selectOff = useCallback(() => {
     setDeliveryRuleKind('off');
     setDeliveryWeekdays([]);
+    setPartitionWindows([]);
+  }, []);
+
+  const selectSameDay = useCallback(() => {
+    setDeliveryRuleKind('same_day');
     setPartitionWindows([]);
   }, []);
 
@@ -190,6 +203,7 @@ export function useSupplierDeliveryScheduleForm(
     setPartitionWindows,
     presetId,
     selectOff,
+    selectSameDay,
     selectNext,
     selectDayAfterCreation,
     selectPreset,

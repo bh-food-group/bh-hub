@@ -12,6 +12,8 @@ const isoWeekWindowSchema = z.object({
 const supplierDeliveryScheduleBaseSchema = z.object({
   deliveryWeekdays: z.array(isoWeekday),
   rule: z.discriminatedUnion('kind', [
+    /** Expected date = the PO creation day itself (see `creationYmd` in compute). */
+    z.object({ kind: z.literal('same_day') }),
     z.object({ kind: z.literal('next_delivery_day') }),
     /** Expected date = Vancouver calendar day of PO creation + 1 (see `creationYmd` in compute). */
     z.object({ kind: z.literal('day_after_creation') }),

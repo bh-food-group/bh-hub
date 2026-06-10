@@ -40,6 +40,7 @@ export function SupplierDeliveryScheduleFields({
     setPartitionWindows,
     presetId,
     selectOff,
+    selectSameDay,
     selectNext,
     selectDayAfterCreation,
     selectPreset,
@@ -67,6 +68,16 @@ export function SupplierDeliveryScheduleFields({
             onChange={selectOff}
           />
           Off (no schedule)
+        </label>
+        <label className="flex cursor-pointer items-center gap-2 text-xs">
+          <input
+            type="radio"
+            name={radioName}
+            className="h-3 w-3"
+            checked={deliveryRuleKind === 'same_day'}
+            onChange={selectSameDay}
+          />
+          Same day (PO creation day)
         </label>
         <label className="flex cursor-pointer items-center gap-2 text-xs">
           <input
