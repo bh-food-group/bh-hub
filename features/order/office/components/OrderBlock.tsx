@@ -322,6 +322,7 @@ export function OrderBlock({
           operations: ops,
           costPatches,
           purchaseOrderId: purchaseOrderId ?? undefined,
+          supplierId: supplierId ?? undefined,
           appendLinesFromShopifyOrderLocalId: hasAppend ? order.id : undefined,
         }),
       });
@@ -338,7 +339,7 @@ export function OrderBlock({
     } finally {
       setSaving(false);
     }
-  }, [order, purchaseOrderId, saveReplacementEdit, buildSavePayload, router]);
+  }, [order, purchaseOrderId, supplierId, saveReplacementEdit, buildSavePayload, router]);
 
   const addSearchHit = useCallback((hit: ShopifyProductSearchHit) => {
     const price = hit.price ?? '0';

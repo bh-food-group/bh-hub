@@ -592,6 +592,12 @@ export const shopifyOrderApplyEditBodySchema = z.object({
     )
     .optional(),
   purchaseOrderId: z.string().min(1).optional(),
+  /**
+   * Inbox supplier bucket the edited order block belongs to (without-PO drafts).
+   * Used to stamp newly-added custom items with the supplier's vendor name so they
+   * group under that supplier instead of falling into "Unassigned".
+   */
+  supplierId: z.string().min(1).optional(),
   appendLinesFromShopifyOrderLocalId: z.string().min(1).optional(),
   /** When true, skips PO line resync so callers can batch parallel order edits then resync once. */
   deferPurchaseOrderResync: z.boolean().optional(),

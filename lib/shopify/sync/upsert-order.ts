@@ -315,6 +315,14 @@ export async function upsertShopifyOrder(
         li.variant?.product?.id?.trim() ||
         li.product?.id?.trim() ||
         null;
+      const existingLi = existingByGid.get(li.id);
+      // Custom items (addCustomItem) have no product/variant, and Shopify always
+      // returns vendor=null for them. When the hub has stamped a vendor on such a
+      // line (to group it under a supplier in the inbox instead of "Unassigned"),
+      // preserve it — otherwise every sync would wipe the stamp back to null.
+      const isCustomLine = !li.variant?.id && !productGid;
+      const vendor =
+        li.vendor ?? (isCustomLine ? existingLi?.vendor ?? null : null);
       const liData = {
         orderId: shopifyOrder.id,
         title: li.title,
@@ -323,12 +331,11 @@ export async function upsertShopifyOrder(
         productGid,
         variantGid: li.variant?.id ?? null,
         imageUrl,
-        vendor: li.vendor ?? null,
+        vendor,
         quantity: qty,
         price: toDecimalOrNull(li.discountedUnitPriceSet?.shopMoney?.amount),
         unitCost: toDecimalOrNull(li.variant?.inventoryItem?.unitCost?.amount),
       };
-      const existingLi = existingByGid.get(li.id);
       if (!existingLi) {
         return prisma.shopifyOrderLineItem.create({
           data: { shopifyGid: li.id, ...liData },

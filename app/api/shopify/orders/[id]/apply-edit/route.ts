@@ -117,12 +117,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
           .filter((op) => op.type === 'addCustomItem')
           .map((op) => (op as { title: string }).title)
       : [];
-    if (addedCustomTitles.length > 0 && data.purchaseOrderId) {
-      const po = await prisma.purchaseOrder.findUnique({
-        where: { id: data.purchaseOrderId },
-        select: { supplier: { select: { shopifyVendorName: true } } },
-      });
-      const vendorName = po?.supplier?.shopifyVendorName ?? null;
+    if (addedCustomTitles.length > 0 && (data.purchaseOrderId || data.supplierId)) {
+      // Resolve the target supplier's vendor name from the PO (post-PO edit) or,
+      // for without-PO inbox drafts, directly from the sidebar supplier bucket.
+      const vendorName = data.purchaseOrderId
+        ? (
+            await prisma.purchaseOrder.findUnique({
+              where: { id: data.purchaseOrderId },
+              select: { supplier: { select: { shopifyVendorName: true } } },
+            })
+          )?.supplier?.shopifyVendorName ?? null
+        : (
+            await prisma.supplier.findUnique({
+              where: { id: data.supplierId! },
+              select: { shopifyVendorName: true },
+            })
+          )?.shopifyVendorName ?? null;
       if (vendorName) {
         await Promise.all(
           addedCustomTitles.map((title) =>
